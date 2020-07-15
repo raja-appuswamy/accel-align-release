@@ -3,6 +3,9 @@ Accel-align is a fast alignment tool implemented in C++ programming language.
 
 ## Get started ##
 
+### Pre-requirement ###
+- intel TBB (https://github.com/01org/tbb/releases/tag/2019_U5)
+
 ### Installation ###
 * clone it from code repository
 * make it: `make -j`
