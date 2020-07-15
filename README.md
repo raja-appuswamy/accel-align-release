@@ -4,11 +4,7 @@ Accel-align is a fast alignment tool implemented in C++ programming language.
 ## Get started ##
 
 ### Pre-requirement ###
-- intel TBB (https://github.com/01org/tbb/releases/tag/2019_U5)
-
-### Installation ###
-* clone it from code repository
-* make it: `make -j`
+- download and install intel TBB (https://github.com/01org/tbb/releases/tag/2019_U5)
 
 ### Build index ###
 It's mandatary to build the index before alignment. 
@@ -35,7 +31,7 @@ Options:
 -x alignment-free (base-to-base align by default)
 ```
 
-### Pair-end aligment ### 
+#### Pair-end aligment #### 
 
 ``` 
 path-to-accel-align/accalign-cpu options ref.fna read1.fastq read2.fastq
@@ -47,7 +43,7 @@ path-to-accel-align/accalign-cpu -l 32 -t 4 -o output-path/out.sam \
 path-to-ref/ref.fna input-path/read1.fastq input-path/read2.fastq
 ``` 
 
-### Single-end aligment ### 
+#### Single-end aligment #### 
 
 ``` 
 path-to-accel-align/accalign-cpu options ref.fna read.fastq
@@ -59,7 +55,7 @@ path-to-accel-align/accalign-cpu -l 32 -t 4 -o output-path/out.sam \
 path-to-ref/ref.fna input-path/read.fastq
 ``` 
 
-### Aligment-free mode ### 
+#### Aligment-free mode #### 
 Accel-Align does base-to-base align by default. However, Accel-Align supports alignment-free mapping mode where the position is reported without the CIGAR string.
  `-x` option will enable the alignment-free mode.
 
