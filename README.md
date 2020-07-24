@@ -4,10 +4,10 @@ Accel-align is a fast alignment tool implemented in C++ programming language.
 ## Get started ##
 
 ### Pre-requirement ###
-- download and install intel TBB (https://github.com/01org/tbb/releases/tag/2019_U5)
+- download and install Intel TBB (https://github.com/01org/tbb/releases/tag/2019_U5)
 
 ### Build index ###
-It's mandatary to build the index before alignment. 
+It's mandatory to build the index before alignment. 
 Options:
 ```
 -l INT the length of k-mers [32]
@@ -18,10 +18,10 @@ Example:
 ```
 path-to-accel-align/accindex -m path-to-ref/ref.fna
 ```
-It will generate the index aside the reference genome as `path-to-ref/ref.fna.hash`.
+It will generate the index along side the reference genome as `path-to-ref/ref.fna.hash`.
 
 ### Align ###
-When the alignment trigged, the index will be loaded in memory automaticly.
+When the alignment is trigged, the index will be loaded in memory automatically.
 
 Options:
 ```
@@ -31,7 +31,7 @@ Options:
 -x alignment-free mapping (base-to-base align by default)
 ```
 
-#### Pair-end aligment #### 
+#### Pair-end alignment #### 
 
 ``` 
 path-to-accel-align/accalign options ref.fna read1.fastq read2.fastq
@@ -43,7 +43,7 @@ path-to-accel-align/accalign -l 32 -t 4 -o output-path/out.sam \
 path-to-ref/ref.fna input-path/read1.fastq input-path/read2.fastq
 ``` 
 
-#### Single-end aligment #### 
+#### Single-end alignment #### 
 
 ``` 
 path-to-accel-align/accalign options ref.fna read.fastq
@@ -55,9 +55,9 @@ path-to-accel-align/accalign -l 32 -t 4 -o output-path/out.sam \
 path-to-ref/ref.fna input-path/read.fastq
 ``` 
 
-#### Aligment-free mode #### 
-Accel-Align does base-to-base align by default. However, Accel-Align supports alignment-free mapping mode where the position is reported without the CIGAR string.
- `-x` option will enable the alignment-free mode.
+#### Alignment-free mode #### 
+Accel-Align does base-to-base alignment by default. However, Accel-Align supports extension-free mapping mode where the position is reported without the CIGAR string.
+ `-x` option will enable the extension-free mode.
 
 Example:
 ``` 
