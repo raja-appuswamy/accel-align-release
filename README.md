@@ -5,7 +5,9 @@ Accel-align is a fast alignment tool implemented in C++ programming language.
 
 ### Docker Container ###
 You can now pull a preconfigured docker container to get the binaries:
+```
 docker run -it rajaappuswamy/accel-align
+```
 
 ### Pre-requirement ###
 If you prefer to do a non-docker install, download and install Intel TBB 
