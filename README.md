@@ -3,8 +3,14 @@ Accel-align is a fast alignment tool implemented in C++ programming language.
 
 ## Get started ##
 
+### Docker Container ###
+You can now pull a preconfigured docker container to get the binaries:
+docker run -it rajaappuswamy/accel-align
+
 ### Pre-requirement ###
-- download and install Intel TBB (https://github.com/01org/tbb/releases/tag/2019_U5)
+If you prefer to do a non-docker install, download and install Intel TBB 
+- source: https://github.com/01org/tbb/releases/tag/2019_U5
+- libtbb-dev package
 
 ### Build index ###
 It's mandatory to build the index before alignment. 
