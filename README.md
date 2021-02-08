@@ -32,7 +32,7 @@ It's mandatary to build the index before alignment. Options:
 Example:
 
 ```
-path-to-accel-align/index -m path-to-ref/ref.fna
+path-to-accel-align/accindex -m path-to-ref/ref.fna
 ```
 
 It will generate the index aside the reference genome as `path-to-ref/ref.fna.hash`.
@@ -56,26 +56,26 @@ Options:
 ### Pair-end aligment ### 
 
 ``` 
-path-to-accel-align/accalign-cpu options ref.fna read1.fastq read2.fastq
+path-to-accel-align/accalign options ref.fna read1.fastq read2.fastq
 ```
 
 Example:
 
 ``` 
-path-to-accel-align/accalign-cpu -l 32 -t 4 -o output-path/out.sam \
+path-to-accel-align/accalign -l 32 -t 4 -o output-path/out.sam \
 path-to-ref/ref.fna input-path/read1.fastq input-path/read2.fastq
 ``` 
 
 ### Single-end aligment ### 
 
 ``` 
-path-to-accel-align/accalign-cpu options ref.fna read.fastq
+path-to-accel-align/accalign options ref.fna read.fastq
 ```
 
 Example:
 
 ``` 
-path-to-accel-align/accalign-cpu -l 32 -t 4 -o output-path/out.sam \
+path-to-accel-align/accalign -l 32 -t 4 -o output-path/out.sam \
 path-to-ref/ref.fna input-path/read.fastq
 ``` 
 
@@ -88,7 +88,7 @@ position is reported without the CIGAR string.
 Example:
 
 ``` 
-path-to-accel-align/accalign-cpu -l 32 -t 4 -x -o output-path/out.sam \
+path-to-accel-align/accalign -l 32 -t 4 -x -o output-path/out.sam \
 path-to-ref/ref.fna input-path/read.fastq
 ``` 
   
