@@ -1,7 +1,7 @@
 ## Overview ##
 Accel-align is a fast alignment tool implemented in C++ programming language.
 
-Download the source code for the various release here: https://github.com/raja-appuswamy/accel-align-release/releases/
+Download the source code for the various release [here](https://github.com/raja-appuswamy/accel-align-release/releases/)
 ## Get started ##
 
 ### Docker Container ###
