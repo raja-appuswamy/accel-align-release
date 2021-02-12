@@ -1,6 +1,7 @@
 ## Overview ##
 Accel-align is a fast alignment tool implemented in C++ programming language.
 
+Download the source code for the various release here: https://github.com/raja-appuswamy/accel-align-release/releases/
 ## Get started ##
 
 ### Docker Container ###
@@ -29,7 +30,7 @@ path-to-accel-align/accindex -m path-to-ref/ref.fna
 It will generate the index along side the reference genome as `path-to-ref/ref.fna.hash`.
 
 ### Align ###
-When the alignment is trigged, the index will be loaded in memory automatically.
+When the alignment is triggered, the index will be loaded in memory automatically.
 
 Options:
 ```
