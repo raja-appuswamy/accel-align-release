@@ -361,6 +361,9 @@ void AccAlign::mark_for_extension(Read &read, char S, Region &cregion) {
   cregion.end = cregion.pos + rlen < ref.size() ? cregion.pos + rlen :
                 ref.size();
 
+  char *strand = S == '+' ? read.fwd : read.rev;
+  rectify_start_pos(strand, cregion);
+
   cregion.is_exact = cregion.is_aligned = false;
   read.best_region = cregion;
 }
@@ -1432,6 +1435,34 @@ void ksw_align(const char *tseq, int tlen, const char *qseq, int qlen,
   const uint8_t *qs = reinterpret_cast<const uint8_t *>(qseq);
   memset(&ez, 0, sizeof(ksw_extz_t));
   ksw_extz2_sse(0, qlen, qs, tlen, ts, 5, mat, gapo, gape, -1, -1, 0, 0, &ez);
+}
+
+//rectify_start_pos at the end of map
+void AccAlign::rectify_start_pos(char *strand, Region &region) {
+  //embed first kmer of read
+  int elen = kmer_len * embedding->efactor;
+  char embeddedQ[elen];
+  embedding->cgk2_embedQ(strand, kmer_len, 0, embeddedQ);
+
+  //shift the start pos and find the best
+  const char *ptr_ref = ref.c_str();
+
+  // the pos without shift
+  int threshold = embedding->cgk2_embed_nmismatch(ptr_ref + region.beg, kmer_len, elen, 0, embeddedQ);
+  int shift = 0;
+
+  for (int i = -MAX_INDEL; i < MAX_INDEL; ++i) {
+    if (i == 0)
+      continue;
+
+    int nmismatch = embedding->cgk2_embed_nmismatch(ptr_ref + region.beg + i, kmer_len, threshold, 0, embeddedQ);
+    if (nmismatch < threshold){
+      threshold = nmismatch;
+      shift = i;
+    }
+  }
+
+  region.beg =  region.beg + shift;
 }
 
 void AccAlign::score_region(Read &r, char *strand, Region &region,

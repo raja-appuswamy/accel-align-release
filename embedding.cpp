@@ -3,65 +3,75 @@
 #define EMBED_PAD 4
 #define CGK2_EMBED 1
 
-int Embedding::cgk2_embed(const char **oridata, unsigned rlen, int threshold, int id,
-                          int strid, char *embeddedQ) {
-  int nmismatch = 0;
-  int elen = efactor * rlen;
-  assert(elen <= MAX_ELEN);
-
+void Embedding::cgk2_embedQ(const char *oridata, unsigned rlen, int strid, char *embeddedQ){
   int j = 0;
-  if (id == 0) {
-    for (unsigned i = 0; i < rlen; i++) {
-      uint8_t s = oridata[id][i];
-      char bit = hash_eb[BITPOS(strid, j, s)];
-      if (!bit) {
-        // here, jth embedded value should be s. for query (id = 0) we need
-        // to generate the embedding. for id > 1, we need to verify.
-        embeddedQ[j] = s;
-        j++;
-      } else {
-        // here, jth and j+1th value are both s.
-        embeddedQ[j + 1] = embeddedQ[j] = s;
-        j += 2;
-      }
-    }
-
-    //append the rest with EMBED_PAD
-    //because the embedded candidate may be longer than j and need to count nmismatch with embeddedQ[j]
-    for (; j < elen; j++) {
-      embeddedQ[j] = EMBED_PAD;
-    }
-
-  } else {
-    for (unsigned i = 0; i < rlen; i++) {
-      uint8_t s = oridata[id][i];
-      char bit = hash_eb[BITPOS(strid, j, s)];
-      if (!bit) {
-        // here, jth embedded value should be s. for query (id = 0) we need
-        // to generate the embedding. for id > 1, we need to verify.
-        nmismatch += (embeddedQ[j] == s ? 0 : 1);
-
-        if (nmismatch > threshold) {
-          nmismatch = elen;
-          goto end;
-        }
-        j++;
-      } else {
-        // here, jth and j+1th value are both s.
-        nmismatch += (embeddedQ[j] == s ? 0 : 1);
-        nmismatch += (embeddedQ[j + 1] == s ? 0 : 1);
-        if (nmismatch > threshold) {
-          goto end;
-        }
-
-        j += 2;
-      }
+  int elen = efactor * rlen;
+  for (unsigned i = 0; i < rlen; i++) {
+    uint8_t s = oridata[i];
+    char bit = hash_eb[BITPOS(strid, j, s)];
+    if (!bit) {
+      // here, jth embedded value should be s. for query (id = 0) we need
+      // to generate the embedding. for id > 1, we need to verify.
+      embeddedQ[j] = s;
+      j++;
+    } else {
+      // here, jth and j+1th value are both s.
+      embeddedQ[j + 1] = embeddedQ[j] = s;
+      j += 2;
     }
   }
 
+  //append the rest with EMBED_PAD
+  //because the embedded candidate may be longer than j and need to count nmismatch with embeddedQ[j]
+  for(; j < elen; j++){
+    embeddedQ[j] = EMBED_PAD;
+  }
   assert(j <= elen);
+}
 
+int Embedding::cgk2_embed_nmismatch(const char *oridata, unsigned rlen, int threshold, int strid, char *embeddedQ){
+  int nmismatch = 0;
+  int j = 0;
+  int elen = efactor * rlen;
+
+  for (unsigned i = 0; i < rlen; i++) {
+    uint8_t s = oridata[i];
+    char bit = hash_eb[BITPOS(strid, j, s)];
+    if (!bit) {
+      // here, jth embedded value should be s. for query (id = 0) we need
+      // to generate the embedding. for id > 1, we need to verify.
+      nmismatch += (embeddedQ[j] == s ? 0 : 1);
+
+      if (nmismatch > threshold) {
+        nmismatch = elen;
+        goto end;
+      }
+      j++;
+    } else {
+      // here, jth and j+1th value are both s.
+      nmismatch += (embeddedQ[j] == s ? 0 : 1);
+      nmismatch += (embeddedQ[j + 1] == s ? 0 : 1);
+      if (nmismatch > threshold) {
+        goto end;
+      }
+
+      j += 2;
+    }
+  }
+  assert(j <= elen);
   end:
+  return nmismatch;
+}
+
+int Embedding::cgk2_embed(const char **oridata, unsigned rlen, int threshold, int id,
+                          int strid, char *embeddedQ) {
+  int nmismatch = 0;
+
+  if (id == 0) {
+    cgk2_embedQ(oridata[id], rlen, strid,  embeddedQ);
+  } else {
+    nmismatch = cgk2_embed_nmismatch(oridata[id], rlen, threshold, strid, embeddedQ);
+  }
 
   return nmismatch;
 }

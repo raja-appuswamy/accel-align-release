@@ -3,6 +3,7 @@
 #define MOD ((1UL<<29)-1)
 #define MOD ((1UL<<29)-1)
 #define BATCH_SIZE 15000
+#define MAX_INDEL 5
 
 //modes
 #define SHORT_READ_MODE 0
