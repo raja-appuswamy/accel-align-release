@@ -362,7 +362,9 @@ void AccAlign::mark_for_extension(Read &read, char S, Region &cregion) {
                 ref.size();
 
   char *strand = S == '+' ? read.fwd : read.rev;
-  rectify_start_pos(strand, cregion);
+
+  if (cregion.embed_dist)
+    rectify_start_pos(strand, cregion);
 
   cregion.is_exact = cregion.is_aligned = false;
   read.best_region = cregion;
@@ -1437,6 +1439,56 @@ void ksw_align(const char *tseq, int tlen, const char *qseq, int qlen,
   ksw_extz2_sse(0, qlen, qs, tlen, ts, 5, mat, gapo, gape, -1, -1, 0, 0, &ez);
 }
 
+//wield to find some cigar SRR098401.31169: 52M24I24D, so need to take care for the case ..?I?D and ..?D?I
+void AccAlign::rectify_cigar(char *cigar, int len){
+  // D at the end => the read has been total aligned, but ref not
+  // remove the D and number of D
+  if (cigar[len-1] == 'D'){
+    int end = len-2;
+    while(cigar[end] != 'M' && cigar[end] != 'I')
+      end--;
+
+    cigar[end+1] = '\0';
+  }
+
+
+  // I at the end => the ref has been total aligned, but read not
+  // change the I to M, aggregate the count
+  if (cigar[len-1] == 'I'){
+    int num_I = 0;
+    int i = len - 2;
+    char op_before;
+    for (; i >=0; i--){
+      if (cigar[i] == 'M' || cigar[i] == 'D'){
+        op_before = cigar[i];
+        break;
+      }
+
+      num_I += (cigar[i] - '0' )* pow(10, len - 2 - i );
+    }
+
+    if (op_before == 'M'){
+      int num_M = 0;
+      int index_M = i;
+      i--;
+      for(; i >=0; i--){
+        if (cigar[i] == 'I' || cigar[i] == 'D')
+          break;
+        num_M += (cigar[i] - '0')  * pow(10, index_M -1 - i );
+      }
+
+      num_I += num_M;
+    }
+
+    std::string s = std::to_string(num_I);
+    char const *pchar = s.c_str();
+
+    strncpy(cigar+i+1, pchar, strlen(pchar));
+    cigar[i+strlen(pchar)+1] = 'M';
+    cigar[i+strlen(pchar)+2] = '\0';
+  }
+}
+
 //rectify_start_pos at the end of map
 void AccAlign::rectify_start_pos(char *strand, Region &region) {
   //embed first kmer of read
@@ -1530,6 +1582,7 @@ void AccAlign::save_region(Read &R, size_t rlen, Region &region,
     int cigar_len = a.cigar_string.size();
     strncpy(R.cigar, a.cigar_string.c_str(), cigar_len);
     R.cigar[cigar_len] = '\0';
+    rectify_cigar(R.cigar, strlen(R.cigar));
   }
   R.tid = 0;
   for (size_t j = 0; j < name.size(); j++) {
@@ -1613,6 +1666,7 @@ void AccAlign::wfa_align_read(Read &R) {
     int cigar_len = cigar.str().length();
     strncpy(R.cigar, cigar.str().c_str(), cigar_len);
     R.cigar[cigar_len] = '\0';
+    rectify_cigar(R.cigar, strlen(R.cigar));
 
     R.as = edit_cigar_score_gap_affine(edit_cigar, &affine_penalties);
 

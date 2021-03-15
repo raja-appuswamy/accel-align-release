@@ -69,6 +69,7 @@ public:
   void map_paired_read(Read &mate1, Read &mate2);
   void wfa_align_read(Read &R);
   void rectify_start_pos(char *strand, Region &region);
+  void rectify_cigar(char *cigar, int len);
   AccAlign(Reference &r);
   ~AccAlign();
 };
