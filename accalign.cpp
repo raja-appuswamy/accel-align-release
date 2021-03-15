@@ -402,6 +402,7 @@ void AccAlign::pigeonhole_query(char *Q, size_t rlen, vector<Region> &candidate_
   size_t ntotal_hits = 0;
   size_t b[nkmers], e[nkmers];
   unsigned kmer_idx = 0;
+  unsigned ori_slide_bk = ori_slide;
 
   // Take non-overlapping seeds and find all hits
   auto start = std::chrono::system_clock::now();
@@ -437,7 +438,7 @@ void AccAlign::pigeonhole_query(char *Q, size_t rlen, vector<Region> &candidate_
       top_pos[i] = posv[b[i]];
       step_off[i] = i % kmer_step;
       rel_off[i] = (i / kmer_step) * kmer_window;
-      top_pos[i] -= (rel_off[i] + step_off[i]);
+      top_pos[i] -= (rel_off[i] + step_off[i] + ori_slide_bk);
     } else {
       top_pos[i] = MAX_POS;
     }
@@ -495,7 +496,7 @@ void AccAlign::pigeonhole_query(char *Q, size_t rlen, vector<Region> &candidate_
     b[min_kmer]++;
     uint32_t next_pos = b[min_kmer] < e[min_kmer] ? posv[b[min_kmer]] : MAX_POS;
     if (next_pos != MAX_POS)
-      *min_item = next_pos - (rel_off[min_kmer] + step_off[min_kmer]);
+      *min_item = next_pos - (rel_off[min_kmer] + step_off[min_kmer] + ori_slide_bk);
     else
       *min_item = MAX_POS;
     ++nprocessed;
