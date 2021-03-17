@@ -1166,13 +1166,21 @@ void AccAlign::snprintf_pair_sam(Read &R, string *s, Read &R2, string *s2) {
     flag |= 0x20;
   flag |= 0x40;
 
-  string format = "%s\t%d\t%s\t%d\t%d\t%s\t%s\t%d\t0\t%s\t%s\tNM:i:%d\tAS:i:%d\n";
+  int isize = 0;
+  if (R.strand != '*' && R2.strand != '*'){
+    if (R.pos > R2.pos)
+      isize = R2.pos - R.pos - strlen(R.seq);
+    else
+      isize = R2.pos - R.pos + strlen(R2.seq);
+  }
+
+  string format = "%s\t%d\t%s\t%d\t%d\t%s\t%s\t%d\t%d\t%s\t%s\tNM:i:%d\tAS:i:%d\n";
   if (R.strand == '+' && R2.strand != '*') {
     size += strlen(R.name) + name[R.tid].length() + name[R2.tid].length() + 2 * strlen(R.seq);
     char buf[size];
     snprintf(buf, size, format.c_str(),
              nn.c_str(), flag, name[R.tid].c_str(), R.pos, (int) R.mapq, R.cigar, name[R.tid] == name[R2.tid] ? "=" : name[R2.tid].c_str(), R2.pos,
-             R.seq, R.qua, R.nm, R.as);
+             isize, R.seq, R.qua, R.nm, R.as);
     *s = buf;
   } else if (R.strand == '-' && R2.strand != '*') {
     size += strlen(R.name) + name[R.tid].length() + name[R2.tid].length() + 2 * strlen(R.seq);
@@ -1180,14 +1188,14 @@ void AccAlign::snprintf_pair_sam(Read &R, string *s, Read &R2, string *s2) {
     std::reverse(R.qua, R.qua + strlen(R.qua));
     snprintf(buf, size, format.c_str(),
              nn.c_str(), flag, name[R.tid].c_str(), R.pos, (int) R.mapq, R.cigar, name[R.tid] == name[R2.tid] ? "=" : name[R2.tid].c_str(), R2.pos,
-             R.rev_str, R.qua, R.nm, R.as);
+             isize, R.rev_str, R.qua, R.nm, R.as);
     *s = buf;
   } else if (R.strand == '+' && R2.strand == '*') {
     size += strlen(R.name) + name[R.tid].length() + 2 * strlen(R.seq);
     char buf[size];
     snprintf(buf, size, format.c_str(),
              nn.c_str(), flag, name[R.tid].c_str(), R.pos, (int) R.mapq, R.cigar, "*", 0,
-             R.seq, R.qua, R.nm, R.as);
+             isize, R.seq, R.qua, R.nm, R.as);
     *s = buf;
   } else if (R.strand == '-' && R2.strand == '*') {
     size += strlen(R.name) + name[R2.tid].length() + 2 * strlen(R.seq);
@@ -1195,21 +1203,21 @@ void AccAlign::snprintf_pair_sam(Read &R, string *s, Read &R2, string *s2) {
     std::reverse(R.qua, R.qua + strlen(R.qua));
     snprintf(buf, size, format.c_str(),
              nn.c_str(), flag, name[R.tid].c_str(), R.pos, (int) R.mapq, R.cigar, "*", 0,
-             R.rev_str, R.qua, R.nm, R.as);
+             isize, R.rev_str, R.qua, R.nm, R.as);
     *s = buf;
   } else if (R.strand == '*' && R2.strand != '*') {
     size += strlen(R.name) + name[R2.tid].length() + 2 * strlen(R.seq);
     char buf[size];
     snprintf(buf, size, format.c_str(),
              nn.c_str(), flag, "*", 0, 0, "*", name[R2.tid].c_str(), R2.pos,
-             R.seq, R.qua, R.nm, R.as);
+             isize, R.seq, R.qua, R.nm, R.as);
     *s = buf;
   } else if (R.strand == '*' && R2.strand == '*') {
     size += strlen(R.name) + 2 * strlen(R.seq);
     char buf[size];
     snprintf(buf, size, format.c_str(),
              nn.c_str(), flag, "*", 0, 0, "*", "*", 0,
-             R.seq, R.qua, R.nm, R.as);
+             isize, R.seq, R.qua, R.nm, R.as);
     *s = buf;
   }
 
@@ -1235,7 +1243,7 @@ void AccAlign::snprintf_pair_sam(Read &R, string *s, Read &R2, string *s2) {
     char buf[size];
     snprintf(buf, size, format.c_str(),
              nn2.c_str(), flag, name[R2.tid].c_str(), R2.pos, (int) R2.mapq, R2.cigar, name[R.tid] == name[R2.tid] ? "=" : name[R.tid].c_str(), R.pos,
-             R2.seq, R2.qua, R2.nm, R2.as);
+             -isize, R2.seq, R2.qua, R2.nm, R2.as);
     *s2 = buf;
   } else if (R2.strand == '-' && R.strand != '*') {
     size += strlen(R2.name) + name[R2.tid].length() + name[R.tid].length() + 2 * strlen(R2.seq);
@@ -1243,14 +1251,14 @@ void AccAlign::snprintf_pair_sam(Read &R, string *s, Read &R2, string *s2) {
     std::reverse(R2.qua, R2.qua + strlen(R2.qua));
     snprintf(buf, size, format.c_str(),
              nn2.c_str(), flag, name[R2.tid].c_str(), R2.pos, (int) R2.mapq, R2.cigar, name[R.tid] == name[R2.tid] ? "=" : name[R.tid].c_str(), R.pos,
-             R2.rev_str, R2.qua, R2.nm, R2.as);
+             -isize, R2.rev_str, R2.qua, R2.nm, R2.as);
     *s2 = buf;
   } else if (R2.strand == '+' && R.strand == '*') {
     size += strlen(R2.name) + name[R2.tid].length() + 2 * strlen(R2.seq);
     char buf[size];
     snprintf(buf, size, format.c_str(),
              nn2.c_str(), flag, name[R2.tid].c_str(), R2.pos, (int) R2.mapq, R2.cigar, "*", 0,
-             R2.seq, R2.qua, R2.nm, R2.as);
+             -isize, R2.seq, R2.qua, R2.nm, R2.as);
     *s2 = buf;
   } else if (R2.strand == '-' && R.strand == '*') {
     size += strlen(R2.name) + name[R.tid].length() + 2 * strlen(R2.seq);
@@ -1258,21 +1266,21 @@ void AccAlign::snprintf_pair_sam(Read &R, string *s, Read &R2, string *s2) {
     std::reverse(R2.qua, R2.qua + strlen(R2.qua));
     snprintf(buf, size, format.c_str(),
              nn2.c_str(), flag, name[R2.tid].c_str(), R2.pos, (int) R2.mapq, R2.cigar, "*", 0,
-             R2.rev_str, R2.qua, R2.nm, R2.as);
+             -isize, R2.rev_str, R2.qua, R2.nm, R2.as);
     *s2 = buf;
   } else if (R2.strand == '*' && R.strand != '*') {
     size += strlen(R2.name) + name[R.tid].length() + 2 * strlen(R2.seq);
     char buf[size];
     snprintf(buf, size, format.c_str(),
              nn2.c_str(), flag, "*", 0, 0, "*", name[R.tid].c_str(), R.pos,
-             R2.seq, R2.qua, R2.nm, R2.as);
+             -isize, R2.seq, R2.qua, R2.nm, R2.as);
     *s2 = buf;
   } else if (R2.strand == '*' && R.strand == '*') {
     size += strlen(R2.name) + 2 * strlen(R2.seq);
     char buf[size];
     snprintf(buf, size, format.c_str(),
              nn2.c_str(), flag, "*", 0, 0, "*", "*", 0,
-             R2.seq, R2.qua, R2.nm, R2.as);
+             -isize, R2.seq, R2.qua, R2.nm, R2.as);
     *s2 = buf;
   }
 
