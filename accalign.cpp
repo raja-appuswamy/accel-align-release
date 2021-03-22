@@ -364,7 +364,7 @@ void AccAlign::mark_for_extension(Read &read, char S, Region &cregion) {
   char *strand = S == '+' ? read.fwd : read.rev;
 
   if (cregion.embed_dist)
-    rectify_start_pos(strand, cregion);
+    rectify_start_pos(strand, cregion, rlen);
 
   cregion.is_exact = cregion.is_aligned = false;
   read.best_region = cregion;
@@ -1500,7 +1500,7 @@ void AccAlign::rectify_cigar(char *cigar, int len){
 }
 
 //rectify_start_pos at the end of map
-void AccAlign::rectify_start_pos(char *strand, Region &region) {
+void AccAlign::rectify_start_pos(char *strand, Region &region, unsigned rlen) {
   //embed first kmer of read
   int elen = kmer_len * embedding->efactor;
   char embeddedQ[elen];
@@ -1513,7 +1513,8 @@ void AccAlign::rectify_start_pos(char *strand, Region &region) {
   int threshold = embedding->cgk2_embed_nmismatch(ptr_ref + region.beg, kmer_len, elen, 0, embeddedQ);
   int shift = 0;
 
-  for (int i = -MAX_INDEL; i < MAX_INDEL; ++i) {
+  float indel_len = ceil(MAX_INDEL * rlen / float (100));
+  for (int i = -indel_len; i < indel_len; ++i) {
     if (i == 0)
       continue;
 
