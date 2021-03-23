@@ -28,7 +28,7 @@ struct Region {
 
 struct Read {
   char name[MAX_LEN], qua[MAX_LEN], seq[MAX_LEN], fwd[MAX_LEN], rev[MAX_LEN], rev_str[MAX_LEN], cigar[MAX_LEN];
-  int tid, as;
+  int tid, as, nm;
   uint32_t pos;
   char strand;
   short mapq;

@@ -3,6 +3,8 @@
 #define MOD ((1UL<<29)-1)
 #define MOD ((1UL<<29)-1)
 #define BATCH_SIZE 15000
+//percent of the read length
+#define MAX_INDEL 5
 
 //modes
 #define SHORT_READ_MODE 0

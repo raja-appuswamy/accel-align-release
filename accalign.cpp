@@ -361,6 +361,11 @@ void AccAlign::mark_for_extension(Read &read, char S, Region &cregion) {
   cregion.end = cregion.pos + rlen < ref.size() ? cregion.pos + rlen :
                 ref.size();
 
+  char *strand = S == '+' ? read.fwd : read.rev;
+
+  if (cregion.embed_dist)
+    rectify_start_pos(strand, cregion, rlen);
+
   cregion.is_exact = cregion.is_aligned = false;
   read.best_region = cregion;
 }
@@ -402,6 +407,7 @@ void AccAlign::pigeonhole_query(char *Q, size_t rlen, vector<Region> &candidate_
   size_t ntotal_hits = 0;
   size_t b[nkmers], e[nkmers];
   unsigned kmer_idx = 0;
+  unsigned ori_slide_bk = ori_slide;
 
   // Take non-overlapping seeds and find all hits
   auto start = std::chrono::system_clock::now();
@@ -437,7 +443,7 @@ void AccAlign::pigeonhole_query(char *Q, size_t rlen, vector<Region> &candidate_
       top_pos[i] = posv[b[i]];
       step_off[i] = i % kmer_step;
       rel_off[i] = (i / kmer_step) * kmer_window;
-      top_pos[i] -= (rel_off[i] + step_off[i]);
+      top_pos[i] -= (rel_off[i] + step_off[i] + ori_slide_bk);
     } else {
       top_pos[i] = MAX_POS;
     }
@@ -495,7 +501,7 @@ void AccAlign::pigeonhole_query(char *Q, size_t rlen, vector<Region> &candidate_
     b[min_kmer]++;
     uint32_t next_pos = b[min_kmer] < e[min_kmer] ? posv[b[min_kmer]] : MAX_POS;
     if (next_pos != MAX_POS)
-      *min_item = next_pos - (rel_off[min_kmer] + step_off[min_kmer]);
+      *min_item = next_pos - (rel_off[min_kmer] + step_off[min_kmer] + ori_slide_bk);
     else
       *min_item = MAX_POS;
     ++nprocessed;
@@ -1160,49 +1166,58 @@ void AccAlign::snprintf_pair_sam(Read &R, string *s, Read &R2, string *s2) {
     flag |= 0x20;
   flag |= 0x40;
 
+  int isize = 0;
+  if (R.strand != '*' && R2.strand != '*'){
+    if (R.pos > R2.pos)
+      isize = R2.pos - R.pos - strlen(R.seq);
+    else
+      isize = R2.pos - R.pos + strlen(R2.seq);
+  }
+
+  string format = "%s\t%d\t%s\t%d\t%d\t%s\t%s\t%d\t%d\t%s\t%s\tNM:i:%d\tAS:i:%d\n";
   if (R.strand == '+' && R2.strand != '*') {
     size += strlen(R.name) + name[R.tid].length() + name[R2.tid].length() + 2 * strlen(R.seq);
     char buf[size];
-    snprintf(buf, size, "%s\t%d\t%s\t%d\t%d\t%s\t%s\t%d\t0\t%s\t%s\n",
-             nn.c_str(), flag, name[R.tid].c_str(), R.pos, (int) R.mapq, R.cigar, name[R2.tid].c_str(), R2.pos,
-             R.seq, R.qua);
+    snprintf(buf, size, format.c_str(),
+             nn.c_str(), flag, name[R.tid].c_str(), R.pos, (int) R.mapq, R.cigar, name[R.tid] == name[R2.tid] ? "=" : name[R2.tid].c_str(), R2.pos,
+             isize, R.seq, R.qua, R.nm, R.as);
     *s = buf;
   } else if (R.strand == '-' && R2.strand != '*') {
     size += strlen(R.name) + name[R.tid].length() + name[R2.tid].length() + 2 * strlen(R.seq);
     char buf[size];
     std::reverse(R.qua, R.qua + strlen(R.qua));
-    snprintf(buf, size, "%s\t%d\t%s\t%d\t%d\t%s\t%s\t%d\t0\t%s\t%s\n",
-             nn.c_str(), flag, name[R.tid].c_str(), R.pos, (int) R.mapq, R.cigar, name[R2.tid].c_str(), R2.pos,
-             R.rev_str, R.qua);
+    snprintf(buf, size, format.c_str(),
+             nn.c_str(), flag, name[R.tid].c_str(), R.pos, (int) R.mapq, R.cigar, name[R.tid] == name[R2.tid] ? "=" : name[R2.tid].c_str(), R2.pos,
+             isize, R.rev_str, R.qua, R.nm, R.as);
     *s = buf;
   } else if (R.strand == '+' && R2.strand == '*') {
     size += strlen(R.name) + name[R.tid].length() + 2 * strlen(R.seq);
     char buf[size];
-    snprintf(buf, size, "%s\t%d\t%s\t%d\t%d\t%s\t%s\t%d\t0\t%s\t%s\n",
+    snprintf(buf, size, format.c_str(),
              nn.c_str(), flag, name[R.tid].c_str(), R.pos, (int) R.mapq, R.cigar, "*", 0,
-             R.seq, R.qua);
+             isize, R.seq, R.qua, R.nm, R.as);
     *s = buf;
   } else if (R.strand == '-' && R2.strand == '*') {
     size += strlen(R.name) + name[R2.tid].length() + 2 * strlen(R.seq);
     char buf[size];
     std::reverse(R.qua, R.qua + strlen(R.qua));
-    snprintf(buf, size, "%s\t%d\t%s\t%d\t%d\t%s\t%s\t%d\t0\t%s\t%s\n",
+    snprintf(buf, size, format.c_str(),
              nn.c_str(), flag, name[R.tid].c_str(), R.pos, (int) R.mapq, R.cigar, "*", 0,
-             R.rev_str, R.qua);
+             isize, R.rev_str, R.qua, R.nm, R.as);
     *s = buf;
   } else if (R.strand == '*' && R2.strand != '*') {
     size += strlen(R.name) + name[R2.tid].length() + 2 * strlen(R.seq);
     char buf[size];
-    snprintf(buf, size, "%s\t%d\t%s\t%d\t%d\t%s\t%s\t%d\t0\t%s\t%s\n",
+    snprintf(buf, size, format.c_str(),
              nn.c_str(), flag, "*", 0, 0, "*", name[R2.tid].c_str(), R2.pos,
-             R.seq, R.qua);
+             isize, R.seq, R.qua, R.nm, R.as);
     *s = buf;
   } else if (R.strand == '*' && R2.strand == '*') {
     size += strlen(R.name) + 2 * strlen(R.seq);
     char buf[size];
-    snprintf(buf, size, "%s\t%d\t%s\t%d\t%d\t%s\t%s\t%d\t0\t%s\t%s\n",
+    snprintf(buf, size, format.c_str(),
              nn.c_str(), flag, "*", 0, 0, "*", "*", 0,
-             R.seq, R.qua);
+             isize, R.seq, R.qua, R.nm, R.as);
     *s = buf;
   }
 
@@ -1226,46 +1241,46 @@ void AccAlign::snprintf_pair_sam(Read &R, string *s, Read &R2, string *s2) {
   if (R2.strand == '+' && R.strand != '*') {
     size += strlen(R2.name) + name[R2.tid].length() + name[R.tid].length() + 2 * strlen(R2.seq);
     char buf[size];
-    snprintf(buf, size, "%s\t%d\t%s\t%d\t%d\t%s\t%s\t%d\t0\t%s\t%s\n",
-             nn2.c_str(), flag, name[R2.tid].c_str(), R2.pos, (int) R2.mapq, R2.cigar, name[R.tid].c_str(), R.pos,
-             R2.seq, R2.qua);
+    snprintf(buf, size, format.c_str(),
+             nn2.c_str(), flag, name[R2.tid].c_str(), R2.pos, (int) R2.mapq, R2.cigar, name[R.tid] == name[R2.tid] ? "=" : name[R.tid].c_str(), R.pos,
+             -isize, R2.seq, R2.qua, R2.nm, R2.as);
     *s2 = buf;
   } else if (R2.strand == '-' && R.strand != '*') {
     size += strlen(R2.name) + name[R2.tid].length() + name[R.tid].length() + 2 * strlen(R2.seq);
     char buf[size];
     std::reverse(R2.qua, R2.qua + strlen(R2.qua));
-    snprintf(buf, size, "%s\t%d\t%s\t%d\t%d\t%s\t%s\t%d\t0\t%s\t%s\n",
-             nn2.c_str(), flag, name[R2.tid].c_str(), R2.pos, (int) R2.mapq, R2.cigar, name[R.tid].c_str(), R.pos,
-             R2.rev_str, R2.qua);
+    snprintf(buf, size, format.c_str(),
+             nn2.c_str(), flag, name[R2.tid].c_str(), R2.pos, (int) R2.mapq, R2.cigar, name[R.tid] == name[R2.tid] ? "=" : name[R.tid].c_str(), R.pos,
+             -isize, R2.rev_str, R2.qua, R2.nm, R2.as);
     *s2 = buf;
   } else if (R2.strand == '+' && R.strand == '*') {
     size += strlen(R2.name) + name[R2.tid].length() + 2 * strlen(R2.seq);
     char buf[size];
-    snprintf(buf, size, "%s\t%d\t%s\t%d\t%d\t%s\t%s\t%d\t0\t%s\t%s\n",
+    snprintf(buf, size, format.c_str(),
              nn2.c_str(), flag, name[R2.tid].c_str(), R2.pos, (int) R2.mapq, R2.cigar, "*", 0,
-             R2.seq, R2.qua);
+             -isize, R2.seq, R2.qua, R2.nm, R2.as);
     *s2 = buf;
   } else if (R2.strand == '-' && R.strand == '*') {
     size += strlen(R2.name) + name[R.tid].length() + 2 * strlen(R2.seq);
     char buf[size];
     std::reverse(R2.qua, R2.qua + strlen(R2.qua));
-    snprintf(buf, size, "%s\t%d\t%s\t%d\t%d\t%s\t%s\t%d\t0\t%s\t%s\n",
+    snprintf(buf, size, format.c_str(),
              nn2.c_str(), flag, name[R2.tid].c_str(), R2.pos, (int) R2.mapq, R2.cigar, "*", 0,
-             R2.rev_str, R2.qua);
+             -isize, R2.rev_str, R2.qua, R2.nm, R2.as);
     *s2 = buf;
   } else if (R2.strand == '*' && R.strand != '*') {
     size += strlen(R2.name) + name[R.tid].length() + 2 * strlen(R2.seq);
     char buf[size];
-    snprintf(buf, size, "%s\t%d\t%s\t%d\t%d\t%s\t%s\t%d\t0\t%s\t%s\n",
+    snprintf(buf, size, format.c_str(),
              nn2.c_str(), flag, "*", 0, 0, "*", name[R.tid].c_str(), R.pos,
-             R2.seq, R2.qua);
+             -isize, R2.seq, R2.qua, R2.nm, R2.as);
     *s2 = buf;
   } else if (R2.strand == '*' && R.strand == '*') {
     size += strlen(R2.name) + 2 * strlen(R2.seq);
     char buf[size];
-    snprintf(buf, size, "%s\t%d\t%s\t%d\t%d\t%s\t%s\t%d\t0\t%s\t%s\n",
+    snprintf(buf, size, format.c_str(),
              nn2.c_str(), flag, "*", 0, 0, "*", "*", 0,
-             R2.seq, R2.qua);
+             -isize, R2.seq, R2.qua, R2.nm, R2.as);
     *s2 = buf;
   }
 
@@ -1285,24 +1300,25 @@ void AccAlign::snprintf_sam(Read &R, string *s) {
     size = 50 + strlen(R.seq); //assume the length of cigar will not longer than the read
   }
 
+  string format = "%s\t%d\t%s\t%d\t%d\t%s\t*\t0\t0\t%s\t%s\tNM:i:%d\tAS:i:%d\n";
   if (R.strand == '*') {
     size += strlen(R.name) + 2 * strlen(R.seq);
     char buf[size];
-    snprintf(buf, size, "%s\t%d\t%s\t%d\t%d\t%s\t*\t0\t0\t%s\t%s\tAS:i:%d\n",
-             R.name, 0, "*", 0, 0, "*", R.seq, R.qua, 0);
+    snprintf(buf, size, format.c_str(),
+             R.name, 0, "*", 0, 0, "*", R.seq, R.qua, 0, 0);
     *s = buf;
   } else {
     size += strlen(R.name) + name[R.tid].length() + 2 * strlen(R.seq);
     char buf[size];
     if (R.strand == '+') {
-      snprintf(buf, size, "%s\t%d\t%s\t%d\t%d\t%s\t*\t0\t0\t%s\t%s\tAS:i:%d\n",
+      snprintf(buf, size, format.c_str(),
                R.name, 0, name[R.tid].c_str(), R.pos, (int) R.mapq, R.cigar,
-               R.seq, R.qua, R.as);
+               R.seq, R.qua, R.nm, R.as);
     } else {
       std::reverse(R.qua, R.qua + strlen(R.qua));
-      snprintf(buf, size, "%s\t%d\t%s\t%d\t%d\t%s\t*\t0\t0\t%s\t%s\tAS:i:%d\n",
+      snprintf(buf, size, format.c_str(),
                R.name, 16, name[R.tid].c_str(), R.pos, (int) R.mapq, R.cigar,
-               R.rev_str, R.qua, R.as);
+               R.rev_str, R.qua, R.nm, R.as);
     }
     *s = buf;
   }
@@ -1433,6 +1449,85 @@ void ksw_align(const char *tseq, int tlen, const char *qseq, int qlen,
   ksw_extz2_sse(0, qlen, qs, tlen, ts, 5, mat, gapo, gape, -1, -1, 0, 0, &ez);
 }
 
+//wield to find some cigar SRR098401.31169: 52M24I24D, so need to take care for the case ..?I?D and ..?D?I
+void AccAlign::rectify_cigar(char *cigar, int len){
+  // D at the end => the read has been total aligned, but ref not
+  // remove the D and number of D
+  if (cigar[len-1] == 'D'){
+    int end = len-2;
+    while(cigar[end] != 'M' && cigar[end] != 'I')
+      end--;
+
+    cigar[end+1] = '\0';
+  }
+
+
+  // I at the end => the ref has been total aligned, but read not
+  // change the I to M, aggregate the count
+  if (cigar[len-1] == 'I'){
+    int num_I = 0;
+    int i = len - 2;
+    char op_before;
+    for (; i >=0; i--){
+      if (cigar[i] == 'M' || cigar[i] == 'D'){
+        op_before = cigar[i];
+        break;
+      }
+
+      num_I += (cigar[i] - '0' )* pow(10, len - 2 - i );
+    }
+
+    if (op_before == 'M'){
+      int num_M = 0;
+      int index_M = i;
+      i--;
+      for(; i >=0; i--){
+        if (cigar[i] == 'I' || cigar[i] == 'D')
+          break;
+        num_M += (cigar[i] - '0')  * pow(10, index_M -1 - i );
+      }
+
+      num_I += num_M;
+    }
+
+    std::string s = std::to_string(num_I);
+    char const *pchar = s.c_str();
+
+    strncpy(cigar+i+1, pchar, strlen(pchar));
+    cigar[i+strlen(pchar)+1] = 'M';
+    cigar[i+strlen(pchar)+2] = '\0';
+  }
+}
+
+//rectify_start_pos at the end of map
+void AccAlign::rectify_start_pos(char *strand, Region &region, unsigned rlen) {
+  //embed first kmer of read
+  int elen = kmer_len * embedding->efactor;
+  char embeddedQ[elen];
+  embedding->cgk2_embedQ(strand, kmer_len, 0, embeddedQ);
+
+  //shift the start pos and find the best
+  const char *ptr_ref = ref.c_str();
+
+  // the pos without shift
+  int threshold = embedding->cgk2_embed_nmismatch(ptr_ref + region.beg, kmer_len, elen, 0, embeddedQ);
+  int shift = 0;
+
+  float indel_len = ceil(MAX_INDEL * rlen / float (100));
+  for (int i = -indel_len; i < indel_len; ++i) {
+    if (i == 0)
+      continue;
+
+    int nmismatch = embedding->cgk2_embed_nmismatch(ptr_ref + region.beg + i, kmer_len, threshold, 0, embeddedQ);
+    if (nmismatch < threshold){
+      threshold = nmismatch;
+      shift = i;
+    }
+  }
+
+  region.beg =  region.beg + shift;
+}
+
 void AccAlign::score_region(Read &r, char *strand, Region &region,
                             Alignment &a) {
   unsigned len = strlen(r.seq);
@@ -1493,11 +1588,14 @@ void AccAlign::save_region(Read &R, size_t rlen, Region &region,
   if (region.is_exact) {
     R.pos = region.pos;
     sprintf(R.cigar, "%uM", (unsigned) rlen);
+    R.nm = 0;
   } else {
     R.pos = region.beg + a.ref_begin;
     int cigar_len = a.cigar_string.size();
     strncpy(R.cigar, a.cigar_string.c_str(), cigar_len);
     R.cigar[cigar_len] = '\0';
+    rectify_cigar(R.cigar, strlen(R.cigar));
+    R.nm = a.mismatches;
   }
   R.tid = 0;
   for (size_t j = 0; j < name.size(); j++) {
@@ -1542,7 +1640,7 @@ void AccAlign::wfa_align_read(Read &R) {
   char *text = R.strand == '+' ? R.fwd : R.rev;
   const char *pattern = ref.c_str() + region.beg;
 
-  if (toExtend) {
+  if (toExtend && region.embed_dist) {
     // Allocate MM
     mm_allocator_t *const mm_allocator = mm_allocator_new(BUFFER_SIZE_8M);
     // Set penalties
@@ -1564,9 +1662,12 @@ void AccAlign::wfa_align_read(Read &R) {
     std::stringstream cigar;
     char last_op = edit_cigar->operations[edit_cigar->begin_offset];
 
-    int last_op_length = 1;
+    int last_op_length = 1, nm = 0;
     int i;
     for (i = edit_cigar->begin_offset + 1; i < edit_cigar->end_offset; ++i) {
+      if (edit_cigar->operations[i] != 'M')
+        nm++;
+
       //convert to M if X
       last_op = last_op == 'X' ? 'M' : last_op;
       if (edit_cigar->operations[i] == last_op || (edit_cigar->operations[i] == 'X' && last_op == 'M')) {
@@ -1581,6 +1682,8 @@ void AccAlign::wfa_align_read(Read &R) {
     int cigar_len = cigar.str().length();
     strncpy(R.cigar, cigar.str().c_str(), cigar_len);
     R.cigar[cigar_len] = '\0';
+    rectify_cigar(R.cigar, strlen(R.cigar));
+    R.nm = nm;
 
     R.as = edit_cigar_score_gap_affine(edit_cigar, &affine_penalties);
 
@@ -1590,6 +1693,7 @@ void AccAlign::wfa_align_read(Read &R) {
   } else {
     sprintf(R.cigar, "%uM", (unsigned) rlen);
     R.as = 0;
+    R.nm = 0;
   }
 
   R.pos = region.pos;

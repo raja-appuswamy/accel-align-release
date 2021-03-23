@@ -22,6 +22,8 @@ public:
                        const char **candidate_refs_f1, const char **candidate_refs_r2,
                        unsigned nregions_f1, unsigned nregions_r2, bool flag_f1[], bool flag_r2[],
                        unsigned best_f1, unsigned next_f1, unsigned best_r2, unsigned next_r2);
+  void cgk2_embedQ(const char *oridata, unsigned rlen, int strid, char *embeddedQ);
+  int cgk2_embed_nmismatch(const char * oridata, unsigned rlen, int threshold, int strid, char *embeddedQ);
   //unsigned char **hash_eb;
   std::bitset<TOTAL_RBITS> hash_eb;
   float embed_time;

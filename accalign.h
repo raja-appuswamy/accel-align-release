@@ -68,6 +68,8 @@ public:
   void snprintf_pair_sam(Read &R, string *s, Read &R2, string *s2);
   void map_paired_read(Read &mate1, Read &mate2);
   void wfa_align_read(Read &R);
+  void rectify_start_pos(char *strand, Region &region, unsigned rlen);
+  void rectify_cigar(char *cigar, int len);
   AccAlign(Reference &r);
   ~AccAlign();
 };
