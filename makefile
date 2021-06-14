@@ -1,27 +1,29 @@
 CC=g++
-WFA_PATH=/media/ssd/ngs-data-analysis/code/WFA/
 
-INCLUDES=-I${WFA_PATH}
 ifneq ($(DEBUG),)
-	CFLAGS=-g -fopenmp -Wall -pthread -std=c++14 -O0 -DDBGPRINT
+	CFLAGS=-g -fopenmp -Wall -pthread -O0 -DDBGPRINT -isystem./WFA -L$./WFA/build 
 else
-	CFLAGS=-g -fopenmp -Wall -pthread -std=c++14 -O3 -mavx2
+	CFLAGS=-g -fopenmp -Wall -pthread -O3 -isystem./WFA -mavx2 -L./WFA/build 
 endif
 
-CC_LDFLAGS=-lz -ltbb -std=c++14
-
+LDFLAGS=./WFA/build/libwfa.a -lz -ltbb 
 TARGETS=accindex accalign
 CPUSRC=reference.cpp accalign.cpp embedding.cpp ksw2_extz2_sse.c
 IDXSRC=index.cpp embedding.cpp
-HEADERS=$(wildcard *.h)
+HEADERS=$(wildcard *.h) 
 
-all: ${TARGETS}
+.PHONY: WFA all
+all: WFA ${TARGETS}
+
+WFA:
+	$(MAKE) -C WFA all
 
 accindex: ${IDXSRC} ${HEADERS}
-	${CC} ${IDXSRC} -o $@ ${CFLAGS} ${CC_LDFLAGS} ${INCLUDES} -L${WFA_PATH}/build -lwfa
+	${CC} -o $@ ${IDXSRC} ${LDFLAGS} ${CFLAGS} 
 
 accalign: ${CPUSRC} ${HEADERS}
-	${CC} ${CPUSRC} -o $@ ${CFLAGS} ${CC_LDFLAGS} ${INCLUDES} -L${WFA_PATH}/build -lwfa
+	${CC} -o $@ ${CPUSRC} ${LDFLAGS} ${CFLAGS}
 
 clean:
-	rm ${TARGETS} *.o
+	$(MAKE) -C WFA clean
+	rm ${TARGETS}

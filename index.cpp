@@ -3,8 +3,7 @@
 using namespace std;
 const unsigned mod = (1UL << 29) - 1;
 const unsigned step = 1;
-unsigned kmer, ncpus = 1;
-bool low_mem = false;
+unsigned kmer;
 
 struct Data {
   uint32_t key, pos;
@@ -102,12 +101,14 @@ bool Index::make_index(const char *F) {
 
   //XXX: Parallel sort uses lots of memory. Need to fix this. In general, we
   //use 8 bytes per item. Its a waste.
-  cerr << "sorting\n";
-  tbb::task_scheduler_init init(ncpus);
-  if (low_mem)
-    sort(data.begin(), data.end(), Data());
-  else
+  try {
+    cerr << "Attempting parallel sorting\n";
+    tbb::task_scheduler_init init(tbb::task_scheduler_init::automatic);
     tbb::parallel_sort(data.begin(), data.end(), Data());
+  } catch (std::bad_alloc e) {
+    cerr << "Fall back to serial sorting (low mem)\n";
+    sort(data.begin(), data.end(), Data());
+  }
 
   cerr << "writing\n";
   string fn = F;
@@ -122,25 +123,26 @@ bool Index::make_index(const char *F) {
   fo.write((char *) &eof, 4);
 
   // write out keys
-  cerr << "Writing posv (" << eof << ")\n";
   for (size_t i = eof; i < data.size(); i++)
     assert(data[i].key == (uint32_t) -1);
-  if (!low_mem) {
+  try {
+    cerr << "Fast writing posv (" << eof << ")\n";
     uint32_t *buf = new uint32_t[eof];
     for (size_t i = 0; i < eof; i++) {
       buf[i] = data[i].pos;
     }
     fo.write((char *) buf, eof * sizeof(uint32_t));
     delete[] buf;
-  } else {
+  } catch (std::bad_alloc e) {
+    cerr << "Fall back to slow writing posv due to low mem.\n";
     for (size_t i = 0; i < eof; i++) {
       fo.write((char *) &data[i].pos, 4);
     }
   }
 
-  cerr << "Writing keyv\n";
   size_t last_key = 0, offset;
-  if (!low_mem) {
+  try {
+    cerr << "Fast writing keyv\n";
     size_t buf_idx = 0;
     uint32_t *buf = new uint32_t[mod + 1];
     for (size_t i = 0; i < eof;) {
@@ -163,7 +165,8 @@ bool Index::make_index(const char *F) {
     assert(buf_idx == (mod + 1));
     fo.write((char *) buf, buf_idx * sizeof(uint32_t));
     delete[] buf;
-  } else {
+  } catch (std::bad_alloc e) {
+    cerr << "Fall back to slow writing keyv (low mem)\n";
     for (size_t i = 0; i < eof;) {
       assert (data[i].key != (uint32_t) -1);
       size_t h = data[i].key, n;
@@ -181,6 +184,7 @@ bool Index::make_index(const char *F) {
     }
   }
 
+  cerr << "Indexing complete\n";
   fo.close();
   return true;
 }
@@ -189,19 +193,13 @@ int main(int ac, char **av) {
   if (ac < 2) {
     cerr << "index [options] <ref.fa>\n";
     cerr << "options:\n";
-    cerr << "\t-l INT length of seed[32]\n\n";
-    cerr << "\t-m Use low mem \n\n";
-    cerr << "\t-t INT number of cpu threads to use[1]\n";
+    cerr << "\t-l INT length of seed [32]\n";
     return 0;
   }
   unsigned kmer_temp = 0;
   for (int it = 1; it < ac; it++) {
     if (strcmp(av[it], "-l") == 0)
       kmer_temp = atoi(av[it + 1]);
-    if (strcmp(av[it], "-m") == 0)
-      low_mem = true;
-    if (strcmp(av[it], "-t") == 0)
-      ncpus = atoi(av[it + 1]);
   }
   kmer = 32;
   if (kmer_temp != 0)

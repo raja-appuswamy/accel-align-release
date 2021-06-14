@@ -17,7 +17,6 @@ bool toExtend = true, useWFA = false;
 int g_ncpus = 1;
 float delTime = 0, alignTime = 0, mapqTime, keyvTime = 0, posvTime = 0, sortTime = 0;
 
-
 void make_code(void) {
   for (size_t i = 0; i < 256; i++)
     code[i] = 4;
@@ -72,14 +71,14 @@ gzFile &operator>>(gzFile &in, Read &r) {
 
 void print_usage() {
   cerr << "accalign [options] <ref.fa> [read1.fastq] [read2.fastq]\n";
+  cerr << "\t Maximum read length supported is 512\n";
   cerr << "options:\n";
-  cerr << "\t-t INT number of cpu threads to use[1]\n";
-  cerr << "\t-l INT length of seed [32]\n";
-  cerr << "\t-o name of output file to use\n";
-  cerr << "\t-x alignment-free\n";
-  cerr << "\t-w use WFA for extension. It's using KSW by default. \n";
-  cerr << "\t-p the maximum distance allowed between the paired-end reads[1000]\n";
-  cerr << "\t maximum read length and read name length supported are 512";
+  cerr << "\t-t INT Number of cpu threads to use [all]\n";
+  cerr << "\t-l INT Length of seed [32]\n";
+  cerr << "\t-o Name of the output file \n";
+  cerr << "\t-x Alignment-free mode\n";
+  cerr << "\t-w Use WFA for extension. KSW used by default. \n";
+  cerr << "\t-p Maximum distance allowed between the paired-end reads [1000]\n";
 }
 
 void AccAlign::print_stats() {
@@ -1467,7 +1466,7 @@ void AccAlign::rectify_cigar(char *cigar, int len){
   if (cigar[len-1] == 'I'){
     int num_I = 0;
     int i = len - 2;
-    char op_before;
+    char op_before = 0;
     for (; i >=0; i--){
       if (cigar[i] == 'M' || cigar[i] == 'D'){
         op_before = cigar[i];
@@ -1891,7 +1890,7 @@ int main(int ac, char **av) {
 
   auto end = std::chrono::system_clock::now();
   auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
-  cerr << "Time to align: " << elapsed.count() / 1000 << "secs\n";
+  cerr << "Time to align: " << elapsed.count() / 1000 << " secs\n";
 
   f.print_stats();
   f.close_output();

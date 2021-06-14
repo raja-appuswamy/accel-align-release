@@ -11,33 +11,27 @@ docker run -it rajaappuswamy/accel-align
 ```
 
 ### Pre-requirement ###
-If you prefer to do a non-docker install, download and install Intel TBB and WFA first. 
+If you prefer to do a non-docker install, download and install Intel TBB first. 
 
 #### Intel TBB ####
 - source: https://github.com/01org/tbb/releases/tag/2019_U5
 - libtbb-dev package
 
-#### WFA ####
-- source: https://github.com/smarco/WFA
-- Note: please update the `WFA_PATH` in the makefile after install WFA
-
 ### Installation ###
-* clone it from code repository
-* make it: `make -j`
+* clone (git clone --recursive https://github.com/raja-appuswamy/accel-align-release)
+* Build it: `make`
 
 ### Build index ###
 It's mandatory to build the index before alignment. Options:
 
 ```
 -l INT the length of k-mers [32]
--m low memory [use if system memory < 16GB]
--t INT number of cpu threads to use[1]
 ```
 
 Example:
 
 ```
-path-to-accel-align/accindex -m -l 32 -t 4 path-to-ref/ref.fna
+path-to-accel-align/accindex -l 32 path-to-ref/ref.fna
 ```
 
 It will generate the index aside the reference genome as `path-to-ref/ref.fna.hash`.
@@ -48,12 +42,12 @@ When the alignment is triggered, the index will be loaded in memory automaticall
 Options:
 
 ```
-   -t INT number of cpu threads to use[1].
+   -t INT number of cpu threads to use [1].
    -l INT length of seed [32].
    -o name of output file to use.
    -x alignment-free.
    -w use WFA for extension. It's using KSW by default.
-   -p the maximum distance allowed between the paired-end reads[1000].
+   -p the maximum distance allowed between the paired-end reads [1000].
    Note: maximum read length and read name length supported are 512.
 ```
 
