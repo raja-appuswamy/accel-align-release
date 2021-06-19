@@ -58,7 +58,11 @@ int Embedding::cgk2_embed_nmismatch(const char *oridata, unsigned rlen, int thre
       j += 2;
     }
   }
-  assert(j <= elen);
+  
+  for (; j < elen; j++)
+    nmismatch += (embeddedQ[j] == EMBED_PAD ? 0 : 1);
+  
+  assert(j == elen - 1);
   end:
   return nmismatch;
 }
