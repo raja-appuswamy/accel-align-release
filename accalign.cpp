@@ -442,7 +442,12 @@ void AccAlign::pigeonhole_query(char *Q, size_t rlen, vector<Region> &candidate_
       top_pos[i] = posv[b[i]];
       step_off[i] = i % kmer_step;
       rel_off[i] = (i / kmer_step) * kmer_window;
-      top_pos[i] -= (rel_off[i] + step_off[i] + ori_slide_bk);
+      int shift_pos = rel_off[i] + step_off[i] + ori_slide_bk;
+      //TODO: for each chrome, happen to < the start pos
+      if (top_pos[i] < shift_pos)
+      	top_pos[i] = 0; // there is insertion before this kmer
+      else
+      	top_pos[i] -= shift_pos;
     } else {
       top_pos[i] = MAX_POS;
     }
@@ -499,10 +504,16 @@ void AccAlign::pigeonhole_query(char *Q, size_t rlen, vector<Region> &candidate_
     // add next element
     b[min_kmer]++;
     uint32_t next_pos = b[min_kmer] < e[min_kmer] ? posv[b[min_kmer]] : MAX_POS;
-    if (next_pos != MAX_POS)
-      *min_item = next_pos - (rel_off[min_kmer] + step_off[min_kmer] + ori_slide_bk);
-    else
+    if (next_pos != MAX_POS){
+    	int shift_pos = rel_off[min_kmer] + step_off[min_kmer] + ori_slide_bk;
+		//TODO: for each chrome, happen to < the start pos
+		if (next_pos < shift_pos)
+			*min_item = 0; // there is insertion before this kmer
+		else
+			*min_item = next_pos - shift_pos;
+	} else
       *min_item = MAX_POS;
+
     ++nprocessed;
   }
 
@@ -1514,7 +1525,7 @@ void AccAlign::rectify_start_pos(char *strand, Region &region, unsigned rlen) {
 
   float indel_len = ceil(MAX_INDEL * rlen / float (100));
   for (int i = -indel_len; i < indel_len; ++i) {
-    if (i == 0)
+    if (i == 0 || region.beg + i < 0 || region.beg + i >= ref.size())
       continue;
 
     int nmismatch = embedding->cgk2_embed_nmismatch(ptr_ref + region.beg + i, kmer_len, threshold, 0, embeddedQ);
