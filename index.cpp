@@ -17,9 +17,9 @@ struct Data {
 };
 
 class Index {
-private:
+ private:
   string ref;
-public:
+ public:
   bool load_ref(const char *F);
   bool make_index(const char *F);
   void cal_key(size_t i, vector<Data> &data);
@@ -55,7 +55,7 @@ bool Index::load_ref(const char *F) {
   return true;
 }
 
-void Index::cal_key(size_t i, vector<Data> &data){
+void Index::cal_key(size_t i, vector<Data> &data) {
   uint64_t h = 0;
   bool hasn = false;
   for (unsigned j = 0; j < kmer; j++) {
@@ -74,7 +74,7 @@ class Tbb_cal_key {
   vector<Data> &data;
   Index *index_obj;
 
-public:
+ public:
   Tbb_cal_key(vector<Data> &_data, Index *_index_obj) :
       data(_data), index_obj(_index_obj) {}
 

@@ -5,23 +5,29 @@ Accel-align is a fast alignment tool implemented in C++ programming language.
 ## Get started ##
 
 ### Docker Container ###
+
 You can now pull a preconfigured docker container to get the binaries:
+
 ```
 docker run -it rajaappuswamy/accel-align
 ```
 
 ### Pre-requirement ###
-If you prefer to do a non-docker install, download and install Intel TBB first. 
+
+If you prefer to do a non-docker install, download and install Intel TBB first.
 
 #### Intel TBB ####
+
 - source: https://github.com/01org/tbb/releases/tag/2019_U5
 - libtbb-dev package
 
 ### Installation ###
+
 * clone (git clone --recursive https://github.com/raja-appuswamy/accel-align-release)
 * Build it: `make`
 
 ### Build index ###
+
 It's mandatory to build the index before alignment. Options:
 
 ```
@@ -37,6 +43,7 @@ path-to-accel-align/accindex -l 32 path-to-ref/ref.fna
 It will generate the index aside the reference genome as `path-to-ref/ref.fna.hash`.
 
 ### Align ###
+
 When the alignment is triggered, the index will be loaded in memory automatically.
 
 Options:

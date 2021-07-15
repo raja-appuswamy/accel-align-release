@@ -38,7 +38,7 @@ struct Read {
 };
 
 class Reference {
-public:
+ public:
   void load_index(const char *F);
   Reference(const char *F);
 

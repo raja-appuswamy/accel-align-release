@@ -37,6 +37,6 @@
 #include "embedding.h"
 #include "accalign.h"
 
-extern "C"{
+extern "C" {
 #include "gap_affine/affine_wavefront_align.h"
 }

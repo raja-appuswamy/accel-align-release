@@ -5,7 +5,7 @@ extern uint8_t code[256];
 class RefParser {
   string &ref;
 
-public:
+ public:
   RefParser(string &ref) : ref(ref) {}
 
   void operator()(const tbb::blocked_range<size_t> &r) const {
