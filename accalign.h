@@ -1,6 +1,6 @@
 #pragma once
 class AccAlign {
-private:
+ private:
   std::string &ref;
   std::vector<std::string> &name;
   std::vector<uint32_t> &offset;
@@ -54,7 +54,7 @@ private:
   void sam_header(void);
   int get_mapq(int best, int secbest, bool hasSecbest, int rlen);
 
-public:
+ public:
   uint32_t *keyv, *posv;
 
   void open_output(std::string &out_file);

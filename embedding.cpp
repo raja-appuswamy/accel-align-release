@@ -3,7 +3,7 @@
 #define EMBED_PAD 4
 #define CGK2_EMBED 1
 
-void Embedding::cgk2_embedQ(const char *oridata, unsigned rlen, int strid, char *embeddedQ){
+void Embedding::cgk2_embedQ(const char *oridata, unsigned rlen, int strid, char *embeddedQ) {
   int j = 0;
   int elen = efactor * rlen;
   for (unsigned i = 0; i < rlen; i++) {
@@ -23,13 +23,13 @@ void Embedding::cgk2_embedQ(const char *oridata, unsigned rlen, int strid, char 
 
   //append the rest with EMBED_PAD
   //because the embedded candidate may be longer than j and need to count nmismatch with embeddedQ[j]
-  for(; j < elen; j++){
+  for (; j < elen; j++) {
     embeddedQ[j] = EMBED_PAD;
   }
   assert(j <= elen);
 }
 
-int Embedding::cgk2_embed_nmismatch(const char *oridata, unsigned rlen, int threshold, int strid, char *embeddedQ){
+int Embedding::cgk2_embed_nmismatch(const char *oridata, unsigned rlen, int threshold, int strid, char *embeddedQ) {
   int nmismatch = 0;
   int j = 0;
   int elen = efactor * rlen;
@@ -58,10 +58,10 @@ int Embedding::cgk2_embed_nmismatch(const char *oridata, unsigned rlen, int thre
       j += 2;
     }
   }
-  
+
   for (; j < elen; j++)
     nmismatch += (embeddedQ[j] == EMBED_PAD ? 0 : 1);
-  
+
   assert(j == elen);
   end:
   return nmismatch;
@@ -72,7 +72,7 @@ int Embedding::cgk2_embed(const char **oridata, unsigned rlen, int threshold, in
   int nmismatch = 0;
 
   if (id == 0) {
-    cgk2_embedQ(oridata[id], rlen, strid,  embeddedQ);
+    cgk2_embedQ(oridata[id], rlen, strid, embeddedQ);
   } else {
     nmismatch = cgk2_embed_nmismatch(oridata[id], rlen, threshold, strid, embeddedQ);
   }

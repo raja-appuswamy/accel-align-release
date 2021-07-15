@@ -4,7 +4,7 @@
 using namespace std;
 
 class Embedding {
-public:
+ public:
   ~Embedding();
   Embedding();
   Embedding(const char *fname);
@@ -23,13 +23,13 @@ public:
                        unsigned nregions_f1, unsigned nregions_r2, bool flag_f1[], bool flag_r2[],
                        unsigned best_f1, unsigned next_f1, unsigned best_r2, unsigned next_r2);
   void cgk2_embedQ(const char *oridata, unsigned rlen, int strid, char *embeddedQ);
-  int cgk2_embed_nmismatch(const char * oridata, unsigned rlen, int threshold, int strid, char *embeddedQ);
+  int cgk2_embed_nmismatch(const char *oridata, unsigned rlen, int threshold, int strid, char *embeddedQ);
   //unsigned char **hash_eb;
   std::bitset<TOTAL_RBITS> hash_eb;
   float embed_time;
   int efactor;
 
-private:
+ private:
 
   int cgk2_embed(const char **oridata, unsigned rlen, int threshold, int id,
                  int strid, char *embeddedQ);
