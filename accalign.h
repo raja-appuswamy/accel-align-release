@@ -53,6 +53,7 @@ class AccAlign {
                     Alignment &a);
   void sam_header(void);
   int get_mapq(int best, int secbest, bool hasSecbest, int rlen);
+  void soft_clip(char *cigar, int &len, Read &R, Region &region);
 
  public:
   uint32_t *keyv, *posv;
@@ -69,7 +70,7 @@ class AccAlign {
   void map_paired_read(Read &mate1, Read &mate2);
   void wfa_align_read(Read &R);
   void rectify_start_pos(char *strand, Region &region, unsigned rlen);
-  void rectify_cigar(char *cigar, int len);
+  void rectify_cigar(char *cigar, int len, Read &R, Region &region);
   AccAlign(Reference &r);
   ~AccAlign();
 };

@@ -56,6 +56,7 @@ Options:
    -w use WFA for extension. It's using KSW by default.
    -p the maximum distance allowed between the paired-end reads [1000].
    Note: maximum read length and read name length supported are 512.
+   -s Take into account softclipping. No softclipping by default.
 ```
 
 ### Pair-end alignment ###

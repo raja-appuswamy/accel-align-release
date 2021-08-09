@@ -12,7 +12,7 @@ unsigned pairdis = 1000;
 string g_out, g_batch_file, g_embed_file;
 char rcsymbol[6] = "TGCAN";
 uint8_t code[256];
-bool toExtend = true, useWFA = false;
+bool toExtend = true, useWFA = false, enable_softclip = false;
 
 int g_ncpus = 1;
 float delTime = 0, alignTime = 0, mapqTime, keyvTime = 0, posvTime = 0, sortTime = 0;
@@ -58,9 +58,9 @@ gzFile &operator>>(gzFile &in, Read &r) {
     return in;
 
   int i = 0;
-  while (i < strlen(r.name)){
-    if (isspace(r.name[i])){ // isspace(): \t, \n, \v, \f, \r
-      memset(r.name+i, '\0', strlen(r.name)-i);
+  while (i < strlen(r.name)) {
+    if (isspace(r.name[i])) { // isspace(): \t, \n, \v, \f, \r
+      memset(r.name + i, '\0', strlen(r.name) - i);
       break;
     }
     i++;
@@ -86,6 +86,7 @@ void print_usage() {
   cerr << "\t-x Alignment-free mode\n";
   cerr << "\t-w Use WFA for extension. KSW used by default. \n";
   cerr << "\t-p Maximum distance allowed between the paired-end reads [1000]\n";
+  cerr << "\t-s Take into account softclipping. No softclipping by default. \n";
 }
 
 void AccAlign::print_stats() {
@@ -1522,14 +1523,143 @@ void ksw_align(const char *tseq, int tlen, const char *qseq, int qlen,
   ksw_extz2_sse(0, qlen, qs, tlen, ts, 5, mat, gapo, gape, -1, -1, 0, 0, &ez);
 }
 
+void AccAlign::soft_clip(char *cigar, int &len, Read &R, Region &region) {
+  int MAX_MATCH = ceil(0.2 * strlen(R.seq));
+  const char *ptr_ref = ref.c_str() + region.beg;
+
+  /*
+   * soft clip in the start of read: cigar e.g. 9I18D????,
+   * -> 'I' means this subseq only in the read, as it's in the beginning of the read could be regarded as soft clip
+   * -> 'D' means this subseq only in the ref, if this follows 'I', should be removed and shift the start pos accordingly
+   */
+  assert(len >= 2);
+  int i = 0;
+  int first_val = 0;
+  while (i < len && isdigit(cigar[i])) {
+    first_val = first_val * 10 + (cigar[i] - '0');
+    i++;
+  }
+  char first_char = cigar[i];
+  i++;
+
+  /*
+   * limit the match length: e.g. 62M13I13D1M should be soft clip at the end not in the beginning
+   */
+  if (first_char != 'M' || first_val < MAX_MATCH) {
+    int second_val = 0;
+    while (i < len && isdigit(cigar[i])) {
+      second_val = second_val * 10 + (cigar[i] - '0');
+      i++;
+    }
+    char second_char = cigar[i];
+    i++;
+    int second_index = i;
+
+    int third_val = 0;
+    while (i < len && isdigit(cigar[i])) {
+      third_val = third_val * 10 + (cigar[i] - '0');
+      i++;
+    }
+    char third_char = cigar[i];
+    i++;
+
+    if ((first_char == 'M' && second_char == 'I' && third_char == 'D') || (first_char == 'I' && second_char == 'D')) {
+      int m_val = first_char == 'M' ? first_val : 0;
+      int i_val = first_char == 'I' ? first_val : second_val;
+      int d_val = second_char == 'D' ? second_val : third_val;
+
+      R.pos += d_val;
+
+      string s = to_string(m_val + i_val);
+      size_t s_len = s.length();
+      strncpy(cigar, s.c_str(), s_len);
+      cigar[s_len] = 'S';
+
+      if (first_char == 'M')
+        memcpy(cigar + s_len + 1, cigar + i, len + 1 - i);
+      else
+        memcpy(cigar + s_len + 1, cigar + second_index, len + 1 - second_index);
+
+      /* justify the AS */
+      region.score += GAPO + GAPE * (i_val - 1) + GAPO + GAPE * (d_val - 1);
+      for (int j = 0; j < m_val; j++) {
+        if (R.seq[j] == ptr_ref[j]) {
+          region.score -= SC_MCH;
+        } else
+          region.score += SC_MIS;
+      }
+
+    }
+    len = strlen(cigar);
+  }
+
+
+  /*
+ * soft clip in the end of read: cigar e.g. ???9I18D1M,
+ */
+  assert(len >= 2);
+  i = len - 1;
+  int num_m = 0;
+  if (cigar[i] == 'M') {
+    i--;
+    while (i >= 0 && isdigit(cigar[i])) {
+      num_m += (cigar[i] - '0') * pow(10, len - 2 - i);
+      i--;
+    }
+  }
+
+  if (cigar[i] == 'D' && num_m < MAX_MATCH) {
+    i--;
+    int num_d = 0, d_bk = i;
+    while (i >= 0 && isdigit(cigar[i])) {
+      num_d += (cigar[i] - '0') * pow(10, d_bk - i);
+      i--;
+    }
+
+    if (cigar[i] == 'I') {
+      i--;
+      int num_i = 0, i_bk = i;
+      while (i >= 0 && isdigit(cigar[i])) {
+        num_i += (cigar[i] - '0') * pow(10, i_bk - i);
+        i--;
+      }
+
+      std::string s = std::to_string(num_i + num_m);
+      char const *pchar = s.c_str();
+
+      strncpy(cigar + i + 1, pchar, strlen(pchar));
+      cigar[i + strlen(pchar) + 1] = 'S';
+      cigar[i + strlen(pchar) + 2] = '\0';
+
+      /* justify the AS */
+      region.score += GAPO + GAPE * (num_i - 1) + GAPO + GAPE * (num_d - 1);
+      for (int j = 0; j < num_m; j++) {
+        if (R.seq[len - 1 - j] == ptr_ref[len - 1 - j]) {
+          region.score -= SC_MCH;
+        } else
+          region.score += SC_MIS;
+      }
+
+    }
+  }
+  len = strlen(cigar);
+}
+
 //wield to find some cigar SRR098401.31169: 52M24I24D, so need to take care for the case ..?I?D and ..?D?I
-void AccAlign::rectify_cigar(char *cigar, int len) {
+void AccAlign::rectify_cigar(char *cigar, int len, Read &R, Region &region) {
+  if (enable_softclip)
+    soft_clip(cigar, len, R, region);
+
   // D at the end => the read has been total aligned, but ref not
   // remove the D and number of D
   if (cigar[len - 1] == 'D') {
     int end = len - 2;
-    while (cigar[end] != 'M' && cigar[end] != 'I')
+    int num_d = 0;
+    while (isdigit(cigar[end])) {
+      num_d += (cigar[end] - '0') * pow(10, len - 2 - end);
       end--;
+    }
+    region.score += GAPO + GAPE * (num_d - 1);
 
     cigar[end + 1] = '\0';
   }
@@ -1542,7 +1672,7 @@ void AccAlign::rectify_cigar(char *cigar, int len) {
     int i = len - 2;
     char op_before = 0;
     for (; i >= 0; i--) {
-      if (cigar[i] == 'M' || cigar[i] == 'D') {
+      if (!isdigit(cigar[i])) {
         op_before = cigar[i];
         break;
       }
@@ -1555,11 +1685,10 @@ void AccAlign::rectify_cigar(char *cigar, int len) {
       int index_M = i;
       i--;
       for (; i >= 0; i--) {
-        if (cigar[i] == 'I' || cigar[i] == 'D')
+        if (cigar[i] == 'I' || cigar[i] == 'D' || cigar[i] == 'S')
           break;
         num_M += (cigar[i] - '0') * pow(10, index_M - 1 - i);
       }
-
       num_I += num_M;
     }
 
@@ -1569,6 +1698,9 @@ void AccAlign::rectify_cigar(char *cigar, int len) {
     strncpy(cigar + i + 1, pchar, strlen(pchar));
     cigar[i + strlen(pchar) + 1] = 'M';
     cigar[i + strlen(pchar) + 2] = '\0';
+
+    /* justify the AS */
+    region.score += GAPO + GAPE * (num_I - 1);
   }
 }
 
@@ -1620,7 +1752,7 @@ void AccAlign::score_region(Read &r, char *strand, Region &region,
     const char *ptr_read = strand;
 
     ksw_extz_t ez;
-    ksw_align(ptr_ref, len, ptr_read, len, 1, 4, 6, 1, ez);
+    ksw_align(ptr_ref, len, ptr_read, len, SC_MCH, SC_MIS, GAPO, GAPE, ez);
 
     stringstream cigar_string;
     int edit_mismatch = 0;
@@ -1667,9 +1799,10 @@ void AccAlign::save_region(Read &R, size_t rlen, Region &region,
     int cigar_len = a.cigar_string.size();
     strncpy(R.cigar, a.cigar_string.c_str(), cigar_len);
     R.cigar[cigar_len] = '\0';
-    rectify_cigar(R.cigar, strlen(R.cigar));
+    rectify_cigar(R.cigar, strlen(R.cigar), R, region);
     R.nm = a.mismatches;
   }
+
   R.tid = 0;
   for (size_t j = 0; j < name.size(); j++) {
     if (offset[j + 1] > R.pos) {
@@ -1682,6 +1815,7 @@ void AccAlign::save_region(Read &R, size_t rlen, Region &region,
 
   R.pos = R.pos - offset[R.tid] + 1;
   R.as = region.score;
+
 }
 
 void AccAlign::align_read(Read &R) {
@@ -1718,10 +1852,10 @@ void AccAlign::wfa_align_read(Read &R) {
     mm_allocator_t *const mm_allocator = mm_allocator_new(BUFFER_SIZE_8M);
     // Set penalties
     affine_penalties_t affine_penalties = {
-        .match = -1,
-        .mismatch = 4,
-        .gap_opening = 6,
-        .gap_extension = 1,
+        .match = -SC_MCH,
+        .mismatch = SC_MIS,
+        .gap_opening = GAPO,
+        .gap_extension = GAPE,
     };
 
     // Init Affine-WFA
@@ -1755,7 +1889,7 @@ void AccAlign::wfa_align_read(Read &R) {
     int cigar_len = cigar.str().length();
     strncpy(R.cigar, cigar.str().c_str(), cigar_len);
     R.cigar[cigar_len] = '\0';
-    rectify_cigar(R.cigar, strlen(R.cigar));
+    rectify_cigar(R.cigar, strlen(R.cigar), R, region);
     R.nm = nm;
 
     R.as = edit_cigar_score_gap_affine(edit_cigar, &affine_penalties);
@@ -1923,6 +2057,10 @@ int main(int ac, char **av) {
         flag = true;
       } else if (av[opn][1] == 'w') {
         useWFA = true;
+        opn += 1;
+        flag = true;
+      } else if (av[opn][1] == 's') {
+        enable_softclip = true;
         opn += 1;
         flag = true;
       } else {
