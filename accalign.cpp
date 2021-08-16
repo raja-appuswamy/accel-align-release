@@ -57,8 +57,15 @@ gzFile &operator>>(gzFile &in, Read &r) {
   if (gzgets(in, r.qua, MAX_LEN) == NULL)
     return in;
 
-  // last char '\n' should be removed
-  r.name[strlen(r.name) - 1] = '\0';
+  int i = 0;
+  while (i < strlen(r.name)){
+    if (isspace(r.name[i])){ // isspace(): \t, \n, \v, \f, \r
+      memset(r.name+i, '\0', strlen(r.name)-i);
+      break;
+    }
+    i++;
+  }
+
   r.qua[strlen(r.qua) - 1] = '\0';
   r.seq[strlen(r.seq) - 1] = '\0';
 
