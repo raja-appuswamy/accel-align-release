@@ -57,6 +57,7 @@ Options:
    -p the maximum distance allowed between the paired-end reads [1000].
    Note: maximum read length and read name length supported are 512.
    -s Take into account softclipping. No softclipping by default.
+   -a Use the alignment score for MAPQ calculation. Embedding distance is used by default.
 ```
 
 ### Pair-end alignment ###

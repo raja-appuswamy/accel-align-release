@@ -54,7 +54,9 @@ class AccAlign {
   void sam_header(void);
   int get_mapq(int best, int secbest, bool hasSecbest, int rlen);
   void soft_clip(char *cigar, int &len, Read &R, Region &region);
-
+  void set_as_based_mapq(Read &R, vector<Region> &fcandidate_regions,
+                         vector<Region> &rcandidate_regions, int fbest, int fnext,
+                         int rbest, int rnext);
  public:
   uint32_t *keyv, *posv;
 
