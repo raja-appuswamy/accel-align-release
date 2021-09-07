@@ -5,6 +5,10 @@
 #define BATCH_SIZE 15000
 //percent of the read length
 #define MAX_INDEL 5
+#define SC_MCH 1
+#define SC_MIS 4
+#define GAPO 6
+#define GAPE 1
 
 //modes
 #define SHORT_READ_MODE 0
