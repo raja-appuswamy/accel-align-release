@@ -34,11 +34,23 @@ void Reference::load_index(const char *F) {
   size_t posv_sz = (size_t) nposv * sizeof(uint32_t);
   size_t keyv_sz = (size_t) nkeyv * sizeof(uint32_t);
   int fd = open(fn.c_str(), O_RDONLY);
-  char *base = reinterpret_cast<char *>(
-      mmap(NULL, 4 + posv_sz + keyv_sz, PROT_READ, MAP_PRIVATE |
-          MAP_POPULATE, fd, 0));
+
+#if __linux__
+#include <linux/version.h>
+#if LINUX_VERSION_CODE > KERNEL_VERSION(2,6,22)
+#define _MAP_POPULATE_AVAILABLE
+#endif
+#endif
+
+#ifdef _MAP_POPULATE_AVAILABLE
+#define MMAP_FLAGS (MAP_PRIVATE | MAP_POPULATE)
+#else
+#define MMAP_FLAGS MAP_PRIVATE
+#endif
+
+  char *base = reinterpret_cast<char *>(mmap(NULL, 4 + posv_sz + keyv_sz, PROT_READ, MMAP_FLAGS, fd, 0));
   assert(base != MAP_FAILED);
-  posv = (uint32_t *) (base + 4);
+  posv = (uint32_t * )(base + 4);
   keyv = posv + nposv;
   cerr << "Mapping done" << endl;
   cerr << "done loading hashtable\n";

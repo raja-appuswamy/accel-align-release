@@ -57,7 +57,7 @@ gzFile &operator>>(gzFile &in, Read &r) {
   if (gzgets(in, r.qua, MAX_LEN) == NULL)
     return in;
 
-  int i = 0;
+  unsigned int i = 0;
   while (i < strlen(r.name)) {
     if (isspace(r.name[i])) { // isspace(): \t, \n, \v, \f, \r
       memset(r.name + i, '\0', strlen(r.name) - i);
@@ -451,7 +451,7 @@ void AccAlign::pigeonhole_query(char *Q, size_t rlen, vector<Region> &candidate_
       top_pos[i] = posv[b[i]];
       step_off[i] = i % kmer_step;
       rel_off[i] = (i / kmer_step) * kmer_window;
-      int shift_pos = rel_off[i] + step_off[i] + ori_slide_bk;
+      uint32_t shift_pos = rel_off[i] + step_off[i] + ori_slide_bk;
       //TODO: for each chrome, happen to < the start pos
       if (top_pos[i] < shift_pos)
         top_pos[i] = 0; // there is insertion before this kmer
@@ -514,7 +514,7 @@ void AccAlign::pigeonhole_query(char *Q, size_t rlen, vector<Region> &candidate_
     b[min_kmer]++;
     uint32_t next_pos = b[min_kmer] < e[min_kmer] ? posv[b[min_kmer]] : MAX_POS;
     if (next_pos != MAX_POS) {
-      int shift_pos = rel_off[min_kmer] + step_off[min_kmer] + ori_slide_bk;
+      uint32_t shift_pos = rel_off[min_kmer] + step_off[min_kmer] + ori_slide_bk;
       //TODO: for each chrome, happen to < the start pos
       if (next_pos < shift_pos)
         *min_item = 0; // there is insertion before this kmer
@@ -854,7 +854,7 @@ void AccAlign::set_as_based_mapq(Read &R, vector<Region> &fcandidate_regions,
       score_region(R, R.fwd, fcandidate_regions[fbest], a);
       best_score = fcandidate_regions[fbest].score;
 
-      if (nfregions > 1 && fcandidate_regions[fnext].embed_dist < second_best) {
+      if (nfregions > 1 && fcandidate_regions[fnext].embed_dist < rcandidate_regions[rbest].embed_dist) {
         score_region(R, R.fwd, fcandidate_regions[fnext], a);
         second_best = fcandidate_regions[fnext].score;
       } else {
@@ -865,7 +865,7 @@ void AccAlign::set_as_based_mapq(Read &R, vector<Region> &fcandidate_regions,
       score_region(R, R.rev, rcandidate_regions[rbest], a);
       best_score = rcandidate_regions[rbest].score;
 
-      if (nrregions > 1 && rcandidate_regions[rnext].embed_dist < second_best) {
+      if (nrregions > 1 && rcandidate_regions[rnext].embed_dist < fcandidate_regions[fbest].embed_dist) {
         score_region(R, R.rev, rcandidate_regions[rnext], a);
         second_best = rcandidate_regions[rnext].score;
       } else {
