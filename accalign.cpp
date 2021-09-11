@@ -374,7 +374,6 @@ void AccAlign::mark_for_extension(Read &read, char S, Region &cregion) {
   if (cregion.embed_dist)
     rectify_start_pos(strand, cregion, rlen);
 
-  cregion.is_exact = cregion.is_aligned = false;
   read.best_region = cregion;
 }
 
@@ -1858,17 +1857,12 @@ void AccAlign::score_region(Read &r, char *strand, Region &region,
                             Alignment &a) {
   unsigned len = strlen(r.seq);
 
-
   // if the region has a embed distance of 0, then its an exact match
   if (!region.embed_dist || !toExtend) {
-    // we found an exact match
-    region.is_exact = true;
-
     // XXX: the scoring here of setting it to len is based on the
     // assumption that our current ssw impl. gives a best score of 150
     region.score = len;
   } else {
-    region.is_exact = false;
     const char *ptr_ref = ref.c_str() + region.beg;
     const char *ptr_read = strand;
 
@@ -1902,16 +1896,15 @@ void AccAlign::score_region(Read &r, char *strand, Region &region,
     a.cigar_string = cigar_string.str();
     free(ez.cigar);
     a.ref_begin = 0;
-    region.score = a.sw_score = ez.score;
+    region.score = ez.score;
     a.mismatches = edit_mismatch;
   }
 
-  region.is_aligned = true;
 }
 
 void AccAlign::save_region(Read &R, size_t rlen, Region &region,
                            Alignment &a) {
-  if (region.is_exact) {
+  if (!region.embed_dist) {
     R.pos = region.pos;
     sprintf(R.cigar, "%uM", (unsigned) rlen);
     R.nm = 0;
@@ -1947,9 +1940,7 @@ void AccAlign::align_read(Read &R) {
 
   Alignment a;
   size_t rlen = strlen(R.seq);
-  if (!region.is_aligned)
-    score_region(R, s, region, a);
-
+  score_region(R, s, region, a);
   save_region(R, rlen, region, a);
 
   auto end = std::chrono::system_clock::now();
