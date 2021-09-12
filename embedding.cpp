@@ -253,7 +253,7 @@ void Embedding::embeddata_iterative_update(vector<Region> &candidate_regions,
     // set best and next idx so that we dont have to sort regions later
     // pick the minimal pos hit when several hits have same embed dist and the best one is not the hcov(0)
     if (nmismatch < best_dist ||
-        (nmismatch == best_dist && best_idx != 0 && candidate_regions[i - 1].pos < candidate_regions[best_idx].pos)) {
+        (nmismatch == best_dist && best_idx != 0 && candidate_regions[i - 1].beg < candidate_regions[best_idx].beg)) {
       next_dist = best_dist;
       next_idx = best_idx;
       best_dist = nmismatch;

@@ -57,7 +57,7 @@ gzFile &operator>>(gzFile &in, Read &r) {
   if (gzgets(in, r.qua, MAX_LEN) == NULL)
     return in;
 
-  unsigned int i = 0;
+  unsigned i = 0;
   while (i < strlen(r.name)) {
     if (isspace(r.name[i])) { // isspace(): \t, \n, \v, \f, \r
       memset(r.name + i, '\0', strlen(r.name) - i);
@@ -365,8 +365,7 @@ void AccAlign::cpu_root_fn(tbb::concurrent_bounded_queue<ReadCnt> *inputQ,
 void AccAlign::mark_for_extension(Read &read, char S, Region &cregion) {
   int rlen = strlen(read.seq);
 
-  cregion.beg = cregion.pos;
-  cregion.end = cregion.pos + rlen < ref.size() ? cregion.pos + rlen :
+  cregion.end = cregion.beg + rlen < ref.size() ? cregion.beg + rlen :
                 ref.size();
 
   char *strand = S == '+' ? read.fwd : read.rev;
@@ -395,7 +394,7 @@ void AccAlign::lsh_filter(char *Q, size_t rlen,
   const char *ptr_ref = ref.c_str();
   for (unsigned i = 0; i < ncandidates; ++i) {
     Region &r = candidate_regions[i];
-    candidate_refs[i + 1] = ptr_ref + r.pos;
+    candidate_refs[i + 1] = ptr_ref + r.beg;
   }
 
   // now do embedding
@@ -487,10 +486,10 @@ void AccAlign::pigeonhole_query(char *Q, size_t rlen, vector<Region> &candidate_
       if (last_cov >= err_threshold) {
         Region r;
         r.cov = last_cov;
-        r.pos = last_pos;
+        r.beg = last_pos;
         //cerr << "Adding " << last_pos << " with cov " << r.cov <<
         //    " as candidate for dir " << S << endl;
-        assert(r.pos != MAX_POS && r.pos < MAX_POS);
+        assert(r.beg != MAX_POS && r.beg < MAX_POS);
 
         // add high coverage regions up front so that we dont have to
         // sort later.
@@ -529,7 +528,7 @@ void AccAlign::pigeonhole_query(char *Q, size_t rlen, vector<Region> &candidate_
   if (last_cov >= err_threshold && last_pos != MAX_POS) {
     Region r;
     r.cov = last_cov;
-    r.pos = last_pos;
+    r.beg = last_pos;
     if (last_cov > max_cov) {
       max_cov = last_cov;
       best = candidate_regions.size();
@@ -586,25 +585,25 @@ void AccAlign::embed_wrapper_pair(Read &R1, Read &R2,
   candidate_refs_f1 = new const char *[nregions_f1 + 1];
   candidate_refs_f1[0] = R1.fwd;
   for (unsigned i = 0; i < nregions_f1; ++i) {
-    candidate_refs_f1[i + 1] = ptr_ref + candidate_regions_f1[i].pos;
+    candidate_refs_f1[i + 1] = ptr_ref + candidate_regions_f1[i].beg;
   }
 
   candidate_refs_r1 = new const char *[nregions_r1 + 1];
   candidate_refs_r1[0] = R1.rev;
   for (unsigned i = 0; i < nregions_r1; ++i) {
-    candidate_refs_r1[i + 1] = ptr_ref + candidate_regions_r1[i].pos;
+    candidate_refs_r1[i + 1] = ptr_ref + candidate_regions_r1[i].beg;
   }
 
   candidate_refs_f2 = new const char *[nregions_f2 + 1];
   candidate_refs_f2[0] = R2.fwd;
   for (unsigned i = 0; i < nregions_f2; ++i) {
-    candidate_refs_f2[i + 1] = ptr_ref + candidate_regions_f2[i].pos;
+    candidate_refs_f2[i + 1] = ptr_ref + candidate_regions_f2[i].beg;
   }
 
   candidate_refs_r2 = new const char *[nregions_r2 + 1];
   candidate_refs_r2[0] = R2.rev;
   for (unsigned i = 0; i < nregions_r2; ++i) {
-    candidate_refs_r2[i + 1] = ptr_ref + candidate_regions_r2[i].pos;
+    candidate_refs_r2[i + 1] = ptr_ref + candidate_regions_r2[i].beg;
   }
 
   //embedQ
@@ -993,7 +992,7 @@ void AccAlign::map_read(Read &R) {
       mark_for_extension(R, '-', rcandidate_regions[rbest]);
       R.strand = '-';
     } else {
-      if (fcandidate_regions[fbest].pos < rcandidate_regions[rbest].pos) {
+      if (fcandidate_regions[fbest].beg < rcandidate_regions[rbest].beg) {
         mark_for_extension(R, '+', fcandidate_regions[fbest]);
         R.strand = '+';
       } else {
@@ -1131,17 +1130,17 @@ void AccAlign::map_paired_read(Read &mate1, Read &mate2) {
 
   for (unsigned i = 0; i < nfregions1; i++) {
     Region tmp;
-    tmp.pos = fcandidate_regions1[i].pos - pairdis;
+    tmp.beg = fcandidate_regions1[i].beg - pairdis;
     auto start = lower_bound(rcandidate_regions2.begin(), rcandidate_regions2.end(), tmp,
                              [](const Region &left, const Region &right) {
-                               return left.pos < right.pos;
+                               return left.beg < right.beg;
                              }
     );
 
-    tmp.pos = fcandidate_regions1[i].pos + pairdis;
+    tmp.beg = fcandidate_regions1[i].beg + pairdis;
     auto end = upper_bound(rcandidate_regions2.begin(), rcandidate_regions2.end(), tmp,
                            [](const Region &left, const Region &right) {
-                             return left.pos < right.pos;
+                             return left.beg < right.beg;
                            }
     );
 
@@ -1166,17 +1165,17 @@ void AccAlign::map_paired_read(Read &mate1, Read &mate2) {
 
   for (unsigned i = 0; i < nrregions1; i++) {
     Region tmp;
-    tmp.pos = rcandidate_regions1[i].pos - pairdis;
+    tmp.beg = rcandidate_regions1[i].beg - pairdis;
     auto start = lower_bound(fcandidate_regions2.begin(), fcandidate_regions2.end(), tmp,
                              [](const Region &left, const Region &right) {
-                               return left.pos < right.pos;
+                               return left.beg < right.beg;
                              }
     );
 
-    tmp.pos = rcandidate_regions1[i].pos + pairdis;
+    tmp.beg = rcandidate_regions1[i].beg + pairdis;
     auto end = upper_bound(fcandidate_regions2.begin(), fcandidate_regions2.end(), tmp,
                            [](const Region &left, const Region &right) {
-                             return left.pos < right.pos;
+                             return left.beg < right.beg;
                            }
     );
 
@@ -1225,9 +1224,6 @@ void AccAlign::map_paired_read(Read &mate1, Read &mate2) {
     int mapq;
 
     if (enable_as_based_mapq) {
-      r1.beg = r1.pos;
-      r2.beg = r2.pos;
-
       int max_score = (strlen(mate1.seq) + strlen(mate2.seq)) * SC_MCH;
 
       Alignment a, b;
@@ -1236,10 +1232,6 @@ void AccAlign::map_paired_read(Read &mate1, Read &mate2) {
       int best = r1.score + r2.score;
 
       if (secmin_dist < INT_MAX) {
-
-        secbest_fregion.beg = secbest_fregion.pos;
-        secbest_rregion.beg = secbest_rregion.pos;
-
         if (secmin_dist_f1r2 == secmin_dist) {
           s1 = mate1.fwd;
           s2 = mate2.rev;
@@ -1905,7 +1897,7 @@ void AccAlign::score_region(Read &r, char *strand, Region &region,
 void AccAlign::save_region(Read &R, size_t rlen, Region &region,
                            Alignment &a) {
   if (!region.embed_dist) {
-    R.pos = region.pos;
+    R.pos = region.beg;
     sprintf(R.cigar, "%uM", (unsigned) rlen);
     R.nm = 0;
   } else {
@@ -2015,7 +2007,7 @@ void AccAlign::wfa_align_read(Read &R) {
     R.nm = 0;
   }
 
-  R.pos = region.pos;
+  R.pos = region.beg;
   R.tid = 0;
   for (size_t j = 0; j < name.size(); j++) {
     if (offset[j + 1] > R.pos) {
@@ -2037,17 +2029,17 @@ void AccAlign::pairdis_filter(vector<Region> &in_regions1, vector<Region> &in_re
 
   for (unsigned i = 0; i < in_regions1.size(); i++) {
     Region tmp;
-    tmp.pos = in_regions1[i].pos - pairdis;
+    tmp.beg = in_regions1[i].beg - pairdis;
     int start = lower_bound(in_regions2.begin(), in_regions2.end(), tmp,
                             [](const Region &left, const Region &right) {
-                              return left.pos < right.pos;
+                              return left.beg < right.beg;
                             }
     ) - in_regions2.begin();
 
-    tmp.pos = in_regions1[i].pos + pairdis;
+    tmp.beg = in_regions1[i].beg + pairdis;
     int end = upper_bound(in_regions2.begin(), in_regions2.end(), tmp,
                           [](const Region &left, const Region &right) {
-                            return left.pos < right.pos;
+                            return left.beg < right.beg;
                           }
     ) - in_regions2.begin();
 
