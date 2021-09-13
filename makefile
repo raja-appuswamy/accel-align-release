@@ -1,9 +1,9 @@
 CC=g++
 
 ifneq ($(DEBUG),)
-	CFLAGS=-g -fopenmp -Wall -pthread -O0 -DDBGPRINT -isystem./WFA -L$./WFA/build -std=c++14
+	CFLAGS=-g -Wall -pthread -O0 -DDBGPRINT -isystem./WFA -L$./WFA/build -std=c++14
 else
-	CFLAGS=-g -fopenmp -Wall -pthread -O3 -isystem./WFA -mavx2 -L./WFA/build -std=c++14
+	CFLAGS=-g -Wall -pthread -O3 -isystem./WFA -mavx2 -L./WFA/build -std=c++14
 endif
 
 LDFLAGS=./WFA/build/libwfa.a -lz -ltbb 

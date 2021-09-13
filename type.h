@@ -5,19 +5,16 @@
 struct Alignment {
   std::string cigar_string;
   int ref_begin;
-  int sw_score;
   int mismatches;
 };
 
 struct Region {
   uint32_t beg;
   uint32_t end;
-  uint32_t pos;
   uint16_t cov;
   uint16_t embed_dist;
-  bool is_exact;
-  bool is_aligned;
   int score;
+
   bool operator()(Region &X, Region &Y) {
     if (X.embed_dist == Y.embed_dist)
       return X.cov > Y.cov;
