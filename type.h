@@ -9,8 +9,8 @@ struct Alignment {
 };
 
 struct Region {
-  uint32_t beg;
-  uint32_t end;
+  uint32_t rs, re;  // start, end position of the reference
+  uint32_t qs, qe;  // start, end position of matched seed in the query (read)
   uint16_t cov;
   uint16_t embed_dist;
   int score;
@@ -51,3 +51,9 @@ class Reference {
 typedef std::tuple<Read *, Read *, int> ReadCnt;
 
 typedef std::tuple<Read *, Read *> ReadPair;
+
+typedef struct {
+  uint32_t capacity;                  // the capacity of cigar[]
+  uint32_t n_cigar;                   // number of cigar operations in cigar[]
+  uint32_t cigar[];
+} mm_extra_t;

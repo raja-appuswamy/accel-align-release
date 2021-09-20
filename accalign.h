@@ -49,7 +49,7 @@ class AccAlign {
   void mark_for_extension(Read &read, char S, Region &cregion);
   void save_region(Read &R, size_t rlen, Region &region,
                    Alignment &a);
-  void score_region(Read &r, char *strand, Region &region,
+  void score_region(Read &r, char *qseq, Region &region,
                     Alignment &a);
   void sam_header(void);
   int get_mapq(int best, int secbest, bool hasSecbest, int rlen);
