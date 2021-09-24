@@ -16,6 +16,7 @@ bool enable_extension = true, enable_wfa_extension = false, enable_softclip = fa
 
 int g_ncpus = 1;
 float delTime = 0, alignTime = 0, mapqTime, keyvTime = 0, posvTime = 0, sortTime = 0;
+int8_t mat[25];
 
 void make_code(void) {
   for (size_t i = 0; i < 256; i++)
@@ -1185,7 +1186,7 @@ void AccAlign::map_paired_read(Read &mate1, Read &mate2) {
 
     for (auto itr = start; itr != end; ++itr) {
       int sum_embed_dist = rcandidate_regions1[i].embed_dist + itr->embed_dist;
-      if (sum_embed_dist <= min_dist) {
+      if (sum_embed_dist < min_dist) {
         secmin_dist = min_dist;
         min_dist = sum_embed_dist;
         secbest_fregion = best_fregion;
@@ -1205,7 +1206,7 @@ void AccAlign::map_paired_read(Read &mate1, Read &mate2) {
   if (min_dist < INT_MAX) {
     char *s1, *s2;
     Region r1, r2;
-    if (min_dist_f1r2 == min_dist) {
+    if (min_dist_f1r2 <= min_dist) {
       mark_for_extension(mate1, '+', best_fregion);
       mark_for_extension(mate2, '-', best_rregion);
       mate1.strand = '+';
@@ -1643,187 +1644,6 @@ static void ksw_gen_simple_mat(int m, int8_t *mat, int8_t a, int8_t b, int8_t sc
     mat[(m - 1) * m + j] = sc_ambi;
 }
 
-void AccAlign::soft_clip(char *cigar, int &len, Read &R, Region &region) {
-  int MAX_MATCH = ceil(0.2 * strlen(R.seq));
-  const char *ptr_ref = ref.c_str() + region.rs;
-
-  /*
-   * soft clip in the start of read: cigar e.g. 9I18D????,
-   * -> 'I' means this subseq only in the read, as it's in the beginning of the read could be regarded as soft clip
-   * -> 'D' means this subseq only in the ref, if this follows 'I', should be removed and shift the start pos accordingly
-   */
-  assert(len >= 2);
-  int i = 0;
-  int first_val = 0;
-  while (i < len && isdigit(cigar[i])) {
-    first_val = first_val * 10 + (cigar[i] - '0');
-    i++;
-  }
-  char first_char = cigar[i];
-  i++;
-
-  /*
-   * limit the match length: e.g. 62M13I13D1M should be soft clip at the end not in the beginning
-   */
-  if (first_char != 'M' || first_val < MAX_MATCH) {
-    int second_val = 0;
-    while (i < len && isdigit(cigar[i])) {
-      second_val = second_val * 10 + (cigar[i] - '0');
-      i++;
-    }
-    char second_char = cigar[i];
-    i++;
-    int second_index = i;
-
-    int third_val = 0;
-    while (i < len && isdigit(cigar[i])) {
-      third_val = third_val * 10 + (cigar[i] - '0');
-      i++;
-    }
-    char third_char = cigar[i];
-    i++;
-
-    if ((first_char == 'M' && second_char == 'I' && third_char == 'D') || (first_char == 'I' && second_char == 'D')) {
-      int m_val = first_char == 'M' ? first_val : 0;
-      int i_val = first_char == 'I' ? first_val : second_val;
-      int d_val = second_char == 'D' ? second_val : third_val;
-
-      R.pos += d_val;
-
-      string s = to_string(m_val + i_val);
-      size_t s_len = s.length();
-      strncpy(cigar, s.c_str(), s_len);
-      cigar[s_len] = 'S';
-
-      if (first_char == 'M')
-        memcpy(cigar + s_len + 1, cigar + i, len + 1 - i);
-      else
-        memcpy(cigar + s_len + 1, cigar + second_index, len + 1 - second_index);
-
-      /* justify the AS */
-      region.score += GAPO + GAPE * (i_val - 1) + GAPO + GAPE * (d_val - 1);
-      for (int j = 0; j < m_val; j++) {
-        if (R.seq[j] == ptr_ref[j]) {
-          region.score -= SC_MCH;
-        } else
-          region.score += SC_MIS;
-      }
-
-    }
-    len = strlen(cigar);
-  }
-
-
-  /*
- * soft clip in the end of read: cigar e.g. ???9I18D1M,
- */
-  assert(len >= 2);
-  i = len - 1;
-  int num_m = 0;
-  if (cigar[i] == 'M') {
-    i--;
-    while (i >= 0 && isdigit(cigar[i])) {
-      num_m += (cigar[i] - '0') * pow(10, len - 2 - i);
-      i--;
-    }
-  }
-
-  if (cigar[i] == 'D' && num_m < MAX_MATCH) {
-    i--;
-    int num_d = 0, d_bk = i;
-    while (i >= 0 && isdigit(cigar[i])) {
-      num_d += (cigar[i] - '0') * pow(10, d_bk - i);
-      i--;
-    }
-
-    if (cigar[i] == 'I') {
-      i--;
-      int num_i = 0, i_bk = i;
-      while (i >= 0 && isdigit(cigar[i])) {
-        num_i += (cigar[i] - '0') * pow(10, i_bk - i);
-        i--;
-      }
-
-      std::string s = std::to_string(num_i + num_m);
-      char const *pchar = s.c_str();
-
-      strncpy(cigar + i + 1, pchar, strlen(pchar));
-      cigar[i + strlen(pchar) + 1] = 'S';
-      cigar[i + strlen(pchar) + 2] = '\0';
-
-      /* justify the AS */
-      region.score += GAPO + GAPE * (num_i - 1) + GAPO + GAPE * (num_d - 1);
-      for (int j = 0; j < num_m; j++) {
-        if (R.seq[len - 1 - j] == ptr_ref[len - 1 - j]) {
-          region.score -= SC_MCH;
-        } else
-          region.score += SC_MIS;
-      }
-
-    }
-  }
-  len = strlen(cigar);
-}
-
-//wield to find some cigar SRR098401.31169: 52M24I24D, so need to take care for the case ..?I?D and ..?D?I
-void AccAlign::rectify_cigar(char *cigar, int len, Read &R, Region &region) {
-  if (enable_softclip)
-    soft_clip(cigar, len, R, region);
-
-  // D at the end => the read has been total aligned, but ref not
-  // remove the D and number of D
-  if (cigar[len - 1] == 'D') {
-    int end = len - 2;
-    int num_d = 0;
-    while (isdigit(cigar[end])) {
-      num_d += (cigar[end] - '0') * pow(10, len - 2 - end);
-      end--;
-    }
-    region.score += GAPO + GAPE * (num_d - 1);
-
-    cigar[end + 1] = '\0';
-  }
-
-
-  // I at the end => the ref has been total aligned, but read not
-  // change the I to M, aggregate the count
-  if (cigar[len - 1] == 'I') {
-    int num_I = 0;
-    int i = len - 2;
-    char op_before = 0;
-    for (; i >= 0; i--) {
-      if (!isdigit(cigar[i])) {
-        op_before = cigar[i];
-        break;
-      }
-
-      num_I += (cigar[i] - '0') * pow(10, len - 2 - i);
-    }
-
-    if (op_before == 'M') {
-      int num_M = 0;
-      int index_M = i;
-      i--;
-      for (; i >= 0; i--) {
-        if (cigar[i] == 'I' || cigar[i] == 'D' || cigar[i] == 'S')
-          break;
-        num_M += (cigar[i] - '0') * pow(10, index_M - 1 - i);
-      }
-      num_I += num_M;
-    }
-
-    std::string s = std::to_string(num_I);
-    char const *pchar = s.c_str();
-
-    strncpy(cigar + i + 1, pchar, strlen(pchar));
-    cigar[i + strlen(pchar) + 1] = 'M';
-    cigar[i + strlen(pchar) + 2] = '\0';
-
-    /* justify the AS */
-    region.score += GAPO + GAPE * (num_I - 1);
-  }
-}
-
 //rectify_start_pos at the end of map
 void AccAlign::rectify_start_pos(char *strand, Region &region, unsigned rlen) {
   //embed first kmer of read
@@ -1860,32 +1680,6 @@ static inline void mm_seq_rev(uint32_t len, char *seq) {
     t = seq[i], seq[i] = seq[len - 1 - i], seq[len - 1 - i] = t;
 }
 
-static void mm_append_cigar(mm_extra_t **r, uint32_t n_cigar, uint32_t *cigar) // TODO: this calls the libc realloc()
-{
-  mm_extra_t *p;
-  mm_extra_t *_r = *r;
-  if (n_cigar == 0) return;
-  if (*r == 0) {
-    uint32_t capacity = n_cigar + sizeof(mm_extra_t)/4;
-    kroundup32(capacity);
-    *r = (mm_extra_t*)calloc(capacity, 4);
-    (*r)->capacity = capacity;
-  } else if (_r->n_cigar + n_cigar + sizeof(mm_extra_t)/4 > _r->capacity) {
-    _r->capacity = _r->n_cigar + n_cigar + sizeof(mm_extra_t)/4;
-    kroundup32(_r->capacity);
-    *r = (mm_extra_t*)realloc(_r, _r->capacity * 4);
-  }
-  p = *r;
-  if (p->n_cigar > 0 && (p->cigar[p->n_cigar-1]&0xf) == (cigar[0]&0xf)) { // same CIGAR op at the boundary
-    p->cigar[p->n_cigar-1] += cigar[0]>>4<<4;
-    if (n_cigar > 1) memcpy(p->cigar + p->n_cigar, cigar + 1, (n_cigar - 1) * 4);
-    p->n_cigar += n_cigar - 1;
-  } else {
-    memcpy(p->cigar + p->n_cigar, cigar, n_cigar * 4);
-    p->n_cigar += n_cigar;
-  }
-}
-
 void AccAlign::score_region(Read &r, char *qseq, Region &region,
                             Alignment &a) {
   unsigned qlen = strlen(r.seq);
@@ -1894,34 +1688,28 @@ void AccAlign::score_region(Read &r, char *qseq, Region &region,
   if (!region.embed_dist || !enable_extension) {
     // XXX: the scoring here of setting it to len is based on the
     // assumption that our current ssw impl. gives a best score of 150
-    region.score = qlen;
+    region.score = qlen * SC_MCH;
   } else {
-    const char *ptr_ref = ref.c_str() + region.rs;
-    const char *ptr_read = qseq;
-
-    ksw_extz_t ez;
-    int8_t mat[25];
-    ksw_gen_simple_mat(5, mat, SC_MCH, SC_MIS, SC_AMBI);
-    memset(&ez, 0, sizeof(ksw_extz_t));
     uint32_t qs, qe, qs0, qe0, rs, re, rs0, re0, l, beginclip = 0, endclip = 0;
     qs = r.best_region.qs;
     qe = r.best_region.qe;
     rs = r.best_region.rs + qs;
     re = rs + kmer_len;
     l = qs;
-    l += l * SC_MCH + END_BONUS > GAPO? (l * SC_MCH + END_BONUS - GAPO) / GAPE : 0;
+    l += l * SC_MCH + END_BONUS > GAPO ? (l * SC_MCH + END_BONUS - GAPO) / GAPE : 0;
     qs0 = 0, qe0 = qlen;
-    rs0 = rs - l > 0? rs - l : 0;
+    rs0 = rs > l ? rs - l : 0;
 
     l = qlen - qe;
-    l += l * SC_MCH + END_BONUS > GAPO? (l * SC_MCH + END_BONUS - GAPO) / GAPE : 0;
+    l += l * SC_MCH + END_BONUS > GAPO ? (l * SC_MCH + END_BONUS - GAPO) / GAPE : 0;
     re0 = re + l;
 
-    mm_extra_t *g_ez = 0;
+    int dp_score = 0;
 
     //left extension
-    if (qs > 0 && rs > 0){
-
+    ksw_extz_t ez_l;
+    memset(&ez_l, 0, sizeof(ksw_extz_t));
+    if (qs > 0 && rs > 0) {
       char tseq[rs - rs0];
       memcpy(tseq, ref.c_str() + rs0, rs - rs0);
       mm_seq_rev(rs - rs0, tseq);
@@ -1929,37 +1717,60 @@ void AccAlign::score_region(Read &r, char *qseq, Region &region,
 
       const uint8_t *_tseq = reinterpret_cast<const uint8_t *>(tseq);
       const uint8_t *_qseq = reinterpret_cast<const uint8_t *>(qseq);
-      ksw_extz2_sse(0, qs - qs0, _qseq, rs - rs0, _tseq, 5, mat, GAPO, GAPE, BANDWIDTH, Z_DROP, END_BONUS, KSW_EZ_EXTZ_ONLY|KSW_EZ_RIGHT|KSW_EZ_REV_CIGAR, &ez);
+      ksw_extz2_sse(0,
+                    qs - qs0,
+                    _qseq,
+                    rs - rs0,
+                    _tseq,
+                    5,
+                    mat,
+                    GAPO,
+                    GAPE,
+                    BANDWIDTH,
+                    Z_DROP,
+                    END_BONUS,
+                    KSW_EZ_EXTZ_ONLY | KSW_EZ_RIGHT | KSW_EZ_REV_CIGAR,
+                    &ez_l);
 
-      if (ez.n_cigar > 0) {
-        mm_append_cigar(&g_ez, ez.n_cigar, ez.cigar);
+      if (ez_l.n_cigar > 0) {
+        dp_score += ez_l.max;
       }
-
-      beginclip = ez.reach_end ? 0 : qs - qs0 - ez.max_q - 1;
-      region.rs = rs - (ez.reach_end? ez.mqe_t + 1: ez.max_t + 1);
+      beginclip = ez_l.reach_end ? 0 : qs - qs0 - ez_l.max_q - 1;
+      region.rs = rs - (ez_l.reach_end ? ez_l.mqe_t + 1 : ez_l.max_t + 1);
+      mm_seq_rev(qs - qs0, qseq);
     }
 
-    ksw_reset_extz(&ez);
-    ez.score = 0;
-    for (unsigned j = 0; j < kmer_len; ++j) {
-      ez.score += qseq[j] == ref.c_str()[rs+j]? SC_MCH : -SC_MIS;
+    // matched seed
+    for (unsigned j = qs; j < qs + kmer_len; ++j) {
+      dp_score += qseq[j] == ref.c_str()[r.best_region.rs + j] ? SC_MCH : -SC_MIS;
     }
-    ez.cigar = ksw_push_cigar(0, &ez.n_cigar, &ez.m_cigar, ez.cigar, 0, kmer_len);
-    if (ez.n_cigar > 0) {
-      mm_append_cigar(&g_ez, ez.n_cigar, ez.cigar);
-    }
+    uint32_t cigar_m = kmer_len << 4;
 
     // right extension
-    if (qe < qe0 && re < re0){
+    ksw_extz_t ez_r;
+    memset(&ez_r, 0, sizeof(ksw_extz_t));
+    if (qe < qe0 && re < re0) {
       const uint8_t *_tseq = reinterpret_cast<const uint8_t *>(ref.c_str() + re);
       const uint8_t *_qseq = reinterpret_cast<const uint8_t *>(qseq + qe);
-      ksw_reset_extz(&ez);
-      ksw_extz2_sse(0, qe0 - qe, _qseq, re0 - re, _tseq, 5, mat, GAPO, GAPE, BANDWIDTH, Z_DROP, END_BONUS, KSW_EZ_EXTZ_ONLY, &ez);
+      ksw_extz2_sse(0,
+                    qe0 - qe,
+                    _qseq,
+                    re0 - re,
+                    _tseq,
+                    5,
+                    mat,
+                    GAPO,
+                    GAPE,
+                    BANDWIDTH,
+                    Z_DROP,
+                    END_BONUS,
+                    KSW_EZ_EXTZ_ONLY,
+                    &ez_r);
 
-      if (ez.n_cigar > 0) {
-        mm_append_cigar(&g_ez, ez.n_cigar, ez.cigar);
+      if (ez_r.n_cigar > 0) {
+        dp_score += ez_r.max;
       }
-      endclip = ez.reach_end ? 0 : qe0 - qe - ez.max_q - 1;
+      endclip = ez_r.reach_end ? 0 : qe0 - qe - ez_r.max_q - 1;
     }
 
     stringstream cigar_string;
@@ -1967,18 +1778,30 @@ void AccAlign::score_region(Read &r, char *qseq, Region &region,
     if (beginclip)
       cigar_string << beginclip << 'S';
 
+    unsigned n_cigar = ez_r.n_cigar + 1 + ez_l.n_cigar;
+    uint32_t cigar[n_cigar];
+    memcpy(cigar, ez_l.cigar, ez_l.n_cigar * 4);
+    memcpy(cigar + ez_l.n_cigar, &cigar_m, 4);
+    memcpy(cigar + ez_l.n_cigar + 1, ez_r.cigar, ez_r.n_cigar * 4);
+
+    unsigned i = 0;
     int edit_mismatch = 0;
-    unsigned ref_pos = 0, read_pos = 0;
-    for (int i = 0; i < g_ez->n_cigar; i++) {
-      int count = g_ez->cigar[i] >> 4;
-      char op = "MID"[g_ez->cigar[i] & 0xf];
+    unsigned ref_pos = region.rs, read_pos = beginclip;
+    while (i < n_cigar) {
+      int count = cigar[i] >> 4;
+      char op = "MID"[cigar[i] & 0xf];
+      i++;
+      while (i < n_cigar && "MID"[cigar[i] & 0xf] == op) {
+        count += cigar[i] >> 4;
+        i++;
+      }
       cigar_string << count << op;
       switch (op) {
         case 'M':
-//          for (int j = 0; j < count; j++, ref_pos++, read_pos++) {
-//            if (ptr_ref[ref_pos] != ptr_read[read_pos])
-//              edit_mismatch++;
-//          }
+          for (int j = 0; j < count; j++, ref_pos++, read_pos++) {
+            if (ref.c_str()[ref_pos] != qseq[read_pos])
+              edit_mismatch++;
+          }
           break;
         case 'D':edit_mismatch += count;
           ref_pos += count;
@@ -1994,11 +1817,11 @@ void AccAlign::score_region(Read &r, char *qseq, Region &region,
       cigar_string << endclip << 'S';
 
     a.cigar_string = cigar_string.str();
-    free(ez.cigar);
-    free(g_ez);
     a.ref_begin = 0;
-    region.score = ez.score;
+    region.score = dp_score;
     a.mismatches = edit_mismatch;
+    free(ez_l.cigar);
+    free(ez_r.cigar);
   }
 
 }
@@ -2102,7 +1925,6 @@ void AccAlign::wfa_align_read(Read &R) {
     int cigar_len = cigar.str().length();
     strncpy(R.cigar, cigar.str().c_str(), cigar_len);
     R.cigar[cigar_len] = '\0';
-//    rectify_cigar(R.cigar, strlen(R.cigar), R, region);
     R.nm = nm;
 
     R.as = edit_cigar_score_gap_affine(edit_cigar, &affine_penalties);
@@ -2300,6 +2122,8 @@ int main(int ac, char **av) {
   // load reference once
   Reference *r = new Reference(av[opn]);
   opn++;
+  if (enable_extension && !enable_wfa_extension)
+    ksw_gen_simple_mat(5, mat, SC_MCH, SC_MIS, SC_AMBI);
 
   size_t total_begin = time(NULL);
 

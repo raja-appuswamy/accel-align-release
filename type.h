@@ -55,5 +55,6 @@ typedef std::tuple<Read *, Read *> ReadPair;
 typedef struct {
   uint32_t capacity;                  // the capacity of cigar[]
   uint32_t n_cigar;                   // number of cigar operations in cigar[]
+  int32_t dp_score;                   // alignment score
   uint32_t cigar[];
 } mm_extra_t;
