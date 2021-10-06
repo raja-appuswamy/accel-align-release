@@ -98,4 +98,10 @@ Example:
 path-to-accel-align/accalign -l 32 -t 4 -x -o output-path/out.sam \
 path-to-ref/ref.fna input-path/read.fastq
 ``` 
-  
+
+### Citing Accel-align ###
+If you use Accel-align in your work, please cite https://doi.org/10.1186/s12859-021-04162-z :
+
+> Yan, Y., Chaturvedi, N. & Appuswamy, R. 
+> Accel-Align: a fast sequence mapper and aligner based on the seed–embed–extend method. 
+> BMC Bioinformatics 22, 257 (2021).
