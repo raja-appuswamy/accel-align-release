@@ -27,9 +27,6 @@
 #define BITPOS(STR_ID, OFFSET, CHAR_ID) (STR_ID * RBITS_PER_STRING +\
         OFFSET * NUM_CHAR + CHAR_ID)
 
-// mapq
-#define MIS_PENALTY -1
-
 #define MAX_LEN 512
 
 #define KSW_EZ_SCORE_ONLY  0x01 // don't record alignment path/cigar

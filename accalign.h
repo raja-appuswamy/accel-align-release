@@ -43,19 +43,13 @@ class AccAlign {
                   vector<Region> &candidate_regions,
                   int &best_threshold, int &next_threshold,
                   unsigned &best_idx, unsigned &next_idx);
-  void set_mapq(Read &R, vector<Region> &fcandidate_regions,
-                vector<Region> &rcandidate_regions, int fbest, int fnext,
-                int rbest, int rnext);
   void mark_for_extension(Read &read, char S, Region &cregion);
   void save_region(Read &R, size_t rlen, Region &region,
                    Alignment &a);
   void score_region(Read &r, char *qseq, Region &region,
                     Alignment &a);
   void sam_header(void);
-  int get_mapq(int best, int secbest, bool hasSecbest, int rlen);
-  void set_as_based_mapq(Read &R, vector<Region> &fcandidate_regions,
-                         vector<Region> &rcandidate_regions, int fbest, int fnext,
-                         int rbest, int rnext);
+
  public:
   uint32_t *keyv, *posv;
 
@@ -71,6 +65,7 @@ class AccAlign {
   void map_paired_read(Read &mate1, Read &mate2);
   void wfa_align_read(Read &R);
   void rectify_start_pos(char *strand, Region &region, unsigned rlen);
+  int get_mapq(int as, int best, int secbest, int rlen, int clen, int cov);
   AccAlign(Reference &r);
   ~AccAlign();
 };

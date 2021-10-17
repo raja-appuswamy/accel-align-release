@@ -92,7 +92,7 @@ void print_usage() {
 }
 
 void AccAlign::print_stats() {
-#if DBGPRINT
+//#if DBGPRINT
   cerr << "Breakdown:\n" <<
        "Input IO time:\t" << input_io_time / 1000000 << "\n" <<
        "Parse time:\t" << parse_time / 1000000 << "\n" <<
@@ -111,7 +111,7 @@ void AccAlign::print_stats() {
        std::endl << endl;
 
   cerr << "Total pairs sorted: " << vpair_sort_count << endl;
-#endif
+//#endif
 }
 
 bool AccAlign::fastq(const char *F1, const char *F2, bool enable_gpu) {
@@ -364,6 +364,7 @@ void AccAlign::cpu_root_fn(tbb::concurrent_bounded_queue<ReadCnt> *inputQ,
 }
 
 void AccAlign::mark_for_extension(Read &read, char S, Region &cregion) {
+  read.strand = S;
   int rlen = strlen(read.seq);
 
   cregion.re = cregion.rs + rlen < ref.size() ? cregion.rs + rlen :
@@ -702,226 +703,14 @@ void AccAlign::embed_wrapper(Read &R, bool ispe,
 
 }
 
-int AccAlign::get_mapq(int best, int secbest, bool hasSecbest, int rlen) {
-
-  int64_t scMin = -0.6 + -0.6 * rlen;
-  int64_t diff = abs(scMin);
-  int64_t bestOver = best - scMin;
-  int ret;
-
-  if (!hasSecbest) {
-    if (bestOver >= diff * (double) 0.9f)
-      ret = 42;
-    else if (bestOver >= diff * (double) 0.8f)
-      ret = 40;
-    else if (bestOver >= diff * (double) 0.7f)
-      ret = 24;
-    else if (bestOver >= diff * (double) 0.6f)
-      ret = 23;
-    else if (bestOver >= diff * (double) 0.5f)
-      ret = 8;
-    else if (bestOver >= diff * (double) 0.4f)
-      ret = 3;
-    else
-      ret = 0;
-  } else {
-    int64_t bestdiff = abs(abs(static_cast<long>(best)) - abs(static_cast<long>(secbest)));
-    if (bestdiff >= diff * (double) 0.9f) {
-      if (bestOver == diff) {
-        ret = 39;
-      } else {
-        ret = 33;
-      }
-    } else if (bestdiff >= diff * (double) 0.8f) {
-      if (bestOver == diff) {
-        ret = 38;
-      } else {
-        ret = 27;
-      }
-    } else if (bestdiff >= diff * (double) 0.7f) {
-      if (bestOver == diff) {
-        ret = 37;
-      } else {
-        ret = 26;
-      }
-    } else if (bestdiff >= diff * (double) 0.6f) {
-      if (bestOver == diff) {
-        ret = 36;
-      } else {
-        ret = 22;
-      }
-    } else if (bestdiff >= diff * (double) 0.5f) {
-      if (bestOver == diff) {
-        ret = 35;
-      } else if (bestOver >= diff * (double) 0.84f) {
-        ret = 25;
-      } else if (bestOver >= diff * (double) 0.68f) {
-        ret = 16;
-      } else {
-        ret = 5;
-      }
-    } else if (bestdiff >= diff * (double) 0.4f) {
-      if (bestOver == diff) {
-        ret = 34;
-      } else if (bestOver >= diff * (double) 0.84f) {
-        ret = 21;
-      } else if (bestOver >= diff * (double) 0.68f) {
-        ret = 14;
-      } else {
-        ret = 4;
-      }
-    } else if (bestdiff >= diff * (double) 0.3f) {
-      if (bestOver == diff) {
-        ret = 32;
-      } else if (bestOver >= diff * (double) 0.88f) {
-        ret = 18;
-      } else if (bestOver >= diff * (double) 0.67f) {
-        ret = 15;
-      } else {
-        ret = 3;
-      }
-    } else if (bestdiff >= diff * (double) 0.2f) {
-      if (bestOver == diff) {
-        ret = 31;
-      } else if (bestOver >= diff * (double) 0.88f) {
-        ret = 17;
-      } else if (bestOver >= diff * (double) 0.67f) {
-        ret = 11;
-      } else {
-        ret = 0;
-      }
-    } else if (bestdiff >= diff * (double) 0.1f) {
-      if (bestOver == diff) {
-        ret = 30;
-      } else if (bestOver >= diff * (double) 0.88f) {
-        ret = 12;
-      } else if (bestOver >= diff * (double) 0.67f) {
-        ret = 7;
-      } else {
-        ret = 0;
-      }
-    } else if (bestdiff > 0) {
-      if (bestOver >= diff * (double) 0.67f) {
-        ret = 6;
-      } else {
-        ret = 2;
-      }
-    } else {
-      assert(bestdiff == 0);
-      if (bestOver >= diff * (double) 0.67f) {
-        ret = 1;
-      } else {
-        ret = 0;
-      }
-    }
-  }
-  return ret;
-}
-
-void AccAlign::set_as_based_mapq(Read &R, vector<Region> &fcandidate_regions,
-                                 vector<Region> &rcandidate_regions, int fbest, int fnext,
-                                 int rbest, int rnext) {
-  int len = embedding->efactor * strlen(R.seq);
-  Alignment a;
-
-  unsigned nfregions = fcandidate_regions.size();
-  unsigned nrregions = rcandidate_regions.size();
-  if (nfregions == 0) {
-    if (nrregions == 0)
-      return;
-    score_region(R, R.rev, rcandidate_regions[rbest], a);
-    int best_score = rcandidate_regions[rbest].score;
-    if (nrregions > 1) {
-      score_region(R, R.rev, rcandidate_regions[rnext], a);
-      int next_score = rcandidate_regions[rnext].score;
-      R.mapq = get_mapq(best_score, next_score, true, len);
-    } else {
-      //only 1 alignment
-      R.mapq = get_mapq(best_score, 0, false, len);
-    }
-  } else if (nrregions == 0) {
-    score_region(R, R.fwd, fcandidate_regions[fbest], a);
-    int best_score = fcandidate_regions[fbest].score;
-    if (nfregions > 1) {
-      score_region(R, R.fwd, fcandidate_regions[fnext], a);
-      int next_score = fcandidate_regions[fnext].score;
-      R.mapq = get_mapq(best_score, next_score, true, len);
-    } else {
-      // only 1 alignment
-      R.mapq = get_mapq(best_score, 0, false, len);
-    }
-  } else {
-    // we have atleast 1 forward and 1 reverse candidate
-    int best_score, second_best;
-    if (fcandidate_regions[fbest].embed_dist < rcandidate_regions[rbest].embed_dist) {
-      score_region(R, R.fwd, fcandidate_regions[fbest], a);
-      best_score = fcandidate_regions[fbest].score;
-
-      if (nfregions > 1 && fcandidate_regions[fnext].embed_dist < rcandidate_regions[rbest].embed_dist) {
-        score_region(R, R.fwd, fcandidate_regions[fnext], a);
-        second_best = fcandidate_regions[fnext].score;
-      } else {
-        score_region(R, R.rev, rcandidate_regions[rbest], a);
-        second_best = rcandidate_regions[rbest].score;
-      }
-    } else {
-      score_region(R, R.rev, rcandidate_regions[rbest], a);
-      best_score = rcandidate_regions[rbest].score;
-
-      if (nrregions > 1 && rcandidate_regions[rnext].embed_dist < fcandidate_regions[fbest].embed_dist) {
-        score_region(R, R.rev, rcandidate_regions[rnext], a);
-        second_best = rcandidate_regions[rnext].score;
-      } else {
-        score_region(R, R.fwd, fcandidate_regions[fbest], a);
-        second_best = fcandidate_regions[fbest].score;
-      }
-    }
-    R.mapq = get_mapq(best_score, second_best, true, len);
-  }
-}
-
-void AccAlign::set_mapq(Read &R, vector<Region> &fcandidate_regions,
-                        vector<Region> &rcandidate_regions, int fbest, int fnext,
-                        int rbest, int rnext) {
-  int len = embedding->efactor * strlen(R.seq);
-
-  unsigned nfregions = fcandidate_regions.size();
-  unsigned nrregions = rcandidate_regions.size();
-  if (nfregions == 0) {
-    if (nrregions == 0)
-      return;
-    int best_score = rcandidate_regions[rbest].embed_dist;
-    if (nrregions > 1) {
-      int next_score = rcandidate_regions[rnext].embed_dist;
-      R.mapq = get_mapq(best_score * MIS_PENALTY, next_score * MIS_PENALTY, true, len);
-    } else {
-      //only 1 alignment
-      R.mapq = get_mapq(best_score * MIS_PENALTY, 0, false, len);
-    }
-  } else if (nrregions == 0) {
-    int best_score = fcandidate_regions[fbest].embed_dist;
-    if (nfregions > 1) {
-      int next_score = fcandidate_regions[fnext].embed_dist;
-      R.mapq = get_mapq(best_score * MIS_PENALTY, next_score * MIS_PENALTY, true, len);
-    } else {
-      // only 1 alignment
-      R.mapq = get_mapq(best_score * MIS_PENALTY, 0, false, len);
-    }
-  } else {
-    // we have atleast 1 forward and 1 reverse candidate
-    if (fcandidate_regions[fbest].embed_dist <
-        rcandidate_regions[rbest].embed_dist) {
-      int second_best = rcandidate_regions[rbest].embed_dist;
-      if (nfregions > 1 && fcandidate_regions[fnext].embed_dist < second_best)
-        second_best = fcandidate_regions[fnext].embed_dist;
-      R.mapq = get_mapq(fcandidate_regions[fbest].embed_dist * MIS_PENALTY, second_best * MIS_PENALTY, true, len);
-    } else {
-      int second_best = fcandidate_regions[fbest].embed_dist;
-      if (nrregions > 1 && rcandidate_regions[rnext].embed_dist < second_best)
-        second_best = rcandidate_regions[rnext].embed_dist;
-      R.mapq = get_mapq(rcandidate_regions[rbest].embed_dist * MIS_PENALTY, second_best * MIS_PENALTY, true, len);
-    }
-  }
+int AccAlign::get_mapq(int as, int best, int secbest, int rlen, int clen, int cov) {
+  static const float q_coef = 40.0f;
+  float identity = (float) rlen/clen;
+  float x = (float) best / secbest;
+  int mapq = (int)(cov * q_coef * identity * (1- x) * logf((float) as / SC_MCH));
+  mapq = mapq < 60? mapq : 60;
+  mapq = mapq < 0? 0 : mapq;
+  return mapq;
 }
 
 void AccAlign::map_read(Read &R) {
@@ -973,36 +762,26 @@ void AccAlign::map_read(Read &R) {
   embedding_time += elapsed.count();
 
   start = std::chrono::system_clock::now();
-  if (enable_as_based_mapq)
-    set_as_based_mapq(R, fcandidate_regions, rcandidate_regions, fbest, fnext, rbest, rnext);
-  else
-    set_mapq(R, fcandidate_regions, rcandidate_regions, fbest, fnext, rbest, rnext);
 
   if (nfregions == 0) {
     if (nrregions == 0)
       return;
     mark_for_extension(R, '-', rcandidate_regions[rbest]);
-    R.strand = '-';
   } else if (nrregions == 0) {
     mark_for_extension(R, '+', fcandidate_regions[fbest]);
-    R.strand = '+';
   } else {
     // pick the candidate with smallest embed dist
     // if fwd/rev have same embed_dist, take the hcov one
     // if hcov one not the min dist, take the one with smaller pos (to be consistent with gpu)
     if (fcandidate_regions[fbest].embed_dist < rcandidate_regions[rbest].embed_dist) {
       mark_for_extension(R, '+', fcandidate_regions[fbest]);
-      R.strand = '+';
     } else if (fcandidate_regions[fbest].embed_dist > rcandidate_regions[rbest].embed_dist) {
       mark_for_extension(R, '-', rcandidate_regions[rbest]);
-      R.strand = '-';
     } else {
       if (fcandidate_regions[fbest].rs < rcandidate_regions[rbest].rs) {
         mark_for_extension(R, '+', fcandidate_regions[fbest]);
-        R.strand = '+';
       } else {
         mark_for_extension(R, '-', rcandidate_regions[rbest]);
-        R.strand = '-';
       }
     }
   }
@@ -1130,12 +909,12 @@ void AccAlign::map_paired_read(Read &mate1, Read &mate2) {
   // mate, and vice versa
   start = std::chrono::system_clock::now();
 
-  int min_dist_f1r2 = INT_MAX, min_dist = INT_MAX, secmin_dist = INT_MAX, secmin_dist_f1r2 = INT_MAX;
-  Region best_fregion, best_rregion, secbest_fregion, secbest_rregion;
+  int min_dist_f1r2 = INT_MAX, min_dist = INT_MAX, secmin_dist = INT_MAX;
+  Region best_fregion, best_rregion;
 
   for (unsigned i = 0; i < nfregions1; i++) {
     Region tmp;
-    tmp.rs = fcandidate_regions1[i].rs - pairdis;
+    tmp.rs = fcandidate_regions1[i].rs < pairdis ? 0 : fcandidate_regions1[i].rs - pairdis;
     auto start = lower_bound(rcandidate_regions2.begin(), rcandidate_regions2.end(), tmp,
                              [](const Region &left, const Region &right) {
                                return left.rs < right.rs;
@@ -1154,23 +933,18 @@ void AccAlign::map_paired_read(Read &mate1, Read &mate2) {
       if (sum_embed_dist <= min_dist) {
         secmin_dist = min_dist;
         min_dist = sum_embed_dist;
-        secbest_fregion = best_fregion;
-        secbest_rregion = best_rregion;
         best_fregion = fcandidate_regions1[i];
         best_rregion = *itr;
       } else if (sum_embed_dist < secmin_dist) {
         secmin_dist = sum_embed_dist;
-        secbest_fregion = fcandidate_regions1[i];
-        secbest_rregion = *itr;
       }
     }
   }
   min_dist_f1r2 = min_dist;
-  secmin_dist_f1r2 = secmin_dist;
 
   for (unsigned i = 0; i < nrregions1; i++) {
     Region tmp;
-    tmp.rs = rcandidate_regions1[i].rs - pairdis;
+    tmp.rs = rcandidate_regions1[i].rs < pairdis ? 0 : rcandidate_regions1[i].rs - pairdis;
     auto start = lower_bound(fcandidate_regions2.begin(), fcandidate_regions2.end(), tmp,
                              [](const Region &left, const Region &right) {
                                return left.rs < right.rs;
@@ -1189,14 +963,10 @@ void AccAlign::map_paired_read(Read &mate1, Read &mate2) {
       if (sum_embed_dist < min_dist) {
         secmin_dist = min_dist;
         min_dist = sum_embed_dist;
-        secbest_fregion = best_fregion;
-        secbest_rregion = best_rregion;
         best_fregion = *itr;
         best_rregion = rcandidate_regions1[i];
       } else if (sum_embed_dist < secmin_dist) {
         secmin_dist = sum_embed_dist;
-        secbest_fregion = *itr;
-        secbest_rregion = rcandidate_regions1[i];
       }
     }
   }
@@ -1204,70 +974,16 @@ void AccAlign::map_paired_read(Read &mate1, Read &mate2) {
 
   // if there is no candidates, the strand will remain *
   if (min_dist < INT_MAX) {
-    char *s1, *s2;
-    Region r1, r2;
     if (min_dist_f1r2 <= min_dist) {
       mark_for_extension(mate1, '+', best_fregion);
       mark_for_extension(mate2, '-', best_rregion);
-      mate1.strand = '+';
-      mate2.strand = '-';
-      s1 = mate1.fwd;
-      s2 = mate2.rev;
-      r1 = best_fregion;
-      r2 = best_rregion;
     } else {
       mark_for_extension(mate2, '+', best_fregion);
       mark_for_extension(mate1, '-', best_rregion);
-      mate1.strand = '-';
-      mate2.strand = '+';
-      s1 = mate1.rev;
-      s2 = mate2.fwd;
-      r1 = best_rregion;
-      r2 = best_fregion;
     }
 
-    int mapq;
-
-    if (enable_as_based_mapq) {
-      int max_score = (strlen(mate1.seq) + strlen(mate2.seq)) * SC_MCH;
-
-      Alignment a, b;
-      score_region(mate1, s1, r1, a);
-      score_region(mate2, s2, r2, b);
-      int best = r1.score + r2.score;
-
-      if (secmin_dist < INT_MAX) {
-        if (secmin_dist_f1r2 == secmin_dist) {
-          s1 = mate1.fwd;
-          s2 = mate2.rev;
-          r1 = secbest_fregion;
-          r2 = secbest_rregion;
-        } else {
-          s1 = mate1.rev;
-          s2 = mate2.fwd;
-          r1 = best_rregion;
-          r2 = best_fregion;
-        }
-
-        Alignment c, d;
-        score_region(mate1, s1, secbest_fregion, c);
-        score_region(mate2, s2, secbest_rregion, d);
-        int secbest = secbest_fregion.score + secbest_rregion.score;
-
-        mapq = get_mapq(best, secbest, true, max_score);
-      } else
-        mapq = get_mapq(best, 0, false, max_score);
-
-    } else {
-      size_t max_hamming = (strlen(mate1.seq) + strlen(mate2.seq)) * embedding->efactor;
-      if (secmin_dist < INT_MAX)
-        mapq = get_mapq(min_dist * MIS_PENALTY, secmin_dist * MIS_PENALTY, true, max_hamming);
-      else
-        mapq = get_mapq(min_dist * MIS_PENALTY, 0, false, max_hamming);
-    }
-
-    mate1.mapq = mapq;
-    mate2.mapq = mapq;
+    mate1.best = mate2.best = min_dist;
+    mate1.secBest = mate2.secBest = secmin_dist;
   }
 
   end = std::chrono::system_clock::now();
@@ -1689,6 +1405,7 @@ void AccAlign::score_region(Read &r, char *qseq, Region &region,
     // XXX: the scoring here of setting it to len is based on the
     // assumption that our current ssw impl. gives a best score of 150
     region.score = qlen * SC_MCH;
+    r.mapq = 60;
   } else {
     uint32_t qs, qe, qs0, qe0, rs, re, rs0, re0, l, beginclip = 0, endclip = 0;
     qs = r.best_region.qs;
@@ -1785,7 +1502,7 @@ void AccAlign::score_region(Read &r, char *qseq, Region &region,
     memcpy(cigar + ez_l.n_cigar + 1, ez_r.cigar, ez_r.n_cigar * 4);
 
     unsigned i = 0;
-    int edit_mismatch = 0;
+    int edit_mismatch = 0, clen = 0;
     unsigned ref_pos = region.rs, read_pos = beginclip;
     while (i < n_cigar) {
       int count = cigar[i] >> 4;
@@ -1795,6 +1512,7 @@ void AccAlign::score_region(Read &r, char *qseq, Region &region,
         count += cigar[i] >> 4;
         i++;
       }
+      clen += count;
       cigar_string << count << op;
       switch (op) {
         case 'M':
@@ -1816,6 +1534,7 @@ void AccAlign::score_region(Read &r, char *qseq, Region &region,
     if (endclip)
       cigar_string << endclip << 'S';
 
+    r.mapq = get_mapq(dp_score, r.best, r.secBest, qlen, qlen+edit_mismatch, r.best_region.cov);
     a.cigar_string = cigar_string.str();
     a.ref_begin = 0;
     region.score = dp_score;
