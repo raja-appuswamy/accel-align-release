@@ -9,7 +9,7 @@ struct Alignment {
 };
 
 struct Region {
-  uint32_t rs, re;  // start, end position of the reference
+  uint32_t rs, re;  // start, end position of the reference match to the whole read
   uint32_t qs, qe;  // start, end position of matched seed in the query (read)
   uint16_t cov;
   uint16_t embed_dist;

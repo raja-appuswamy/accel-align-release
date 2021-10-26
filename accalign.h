@@ -35,7 +35,7 @@ class AccAlign {
   void pghole_wrapper(Read &R, vector<Region> &fcandidate_regions,
                       vector<Region> &rcandidate_regions, unsigned &fbest, unsigned &rbest, unsigned ori_slide);
   void pigeonhole_query(char *Q, size_t rlen, vector<Region> &candidate_regions,
-                        char S, int err_threshold, unsigned &best, unsigned ori_slide);
+                        char S, int err_threshold, unsigned kmer_step, unsigned max_occ, unsigned &best, unsigned ori_slide);
   void pairdis_filter(vector<Region> &in_regions1, vector<Region> &in_regions2,
                       bool flag1[], bool flag2[],
                       unsigned &best1, unsigned &next1, unsigned &best2, unsigned &next2);

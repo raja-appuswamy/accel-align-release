@@ -12,7 +12,7 @@ unsigned pairdis = 1000;
 string g_out, g_batch_file, g_embed_file;
 char rcsymbol[6] = "TGCAN";
 uint8_t code[256];
-bool enable_extension = true, enable_wfa_extension = false, enable_softclip = false, enable_as_based_mapq = false;
+bool enable_extension = true, enable_wfa_extension = false, extend_all = false;
 
 int g_ncpus = 1;
 float delTime = 0, alignTime = 0, mapqTime, keyvTime = 0, posvTime = 0, sortTime = 0;
@@ -87,8 +87,6 @@ void print_usage() {
   cerr << "\t-x Alignment-free mode\n";
   cerr << "\t-w Use WFA for extension. KSW used by default. \n";
   cerr << "\t-p Maximum distance allowed between the paired-end reads [1000]\n";
-  cerr << "\t-s Take into account softclipping. No softclipping by default. \n";
-  cerr << "\t-a Use the alignment score for MAPQ calculation. Embedding distance is used by default. \n";
 }
 
 void AccAlign::print_stats() {
@@ -407,11 +405,9 @@ void AccAlign::lsh_filter(char *Q, size_t rlen,
 }
 
 void AccAlign::pigeonhole_query(char *Q, size_t rlen, vector<Region> &candidate_regions,
-                                char S, int err_threshold, unsigned &best, unsigned ori_slide) {
+                                char S, int err_threshold, unsigned kmer_step, unsigned max_occ, unsigned &best, unsigned ori_slide) {
   int max_cov = 0;
-  unsigned kmer_window = kmer_len + kmer_step - 1;
-  unsigned nwindows = (rlen - ori_slide) / kmer_window;
-  unsigned nkmers = nwindows * kmer_step;
+  unsigned nkmers =  (rlen - ori_slide - kmer_len) / kmer_step + 1;
   size_t ntotal_hits = 0;
   size_t b[nkmers], e[nkmers];
   unsigned kmer_idx = 0;
@@ -419,17 +415,17 @@ void AccAlign::pigeonhole_query(char *Q, size_t rlen, vector<Region> &candidate_
 
   // Take non-overlapping seeds and find all hits
   auto start = std::chrono::system_clock::now();
-  for (; ori_slide + kmer_window <= rlen; ori_slide += kmer_window) {
-    for (int step = 0; step < kmer_step; step++) {
+  for (size_t i = ori_slide; i + kmer_len <= rlen; i += kmer_step) {
       uint64_t k = 0;
-      for (size_t j = ori_slide + step; j < ori_slide + kmer_len + step; j++)
+      for (size_t j = i; j < i + kmer_len; j++)
         k = (k << 2) + *(Q + j);
       size_t hash = (k & mask) % MOD;
       b[kmer_idx] = keyv[hash];
       e[kmer_idx] = keyv[hash + 1];
-      ntotal_hits += (e[kmer_idx] - b[kmer_idx]);
+      if (e[kmer_idx] - b[kmer_idx] < max_occ){
+        ntotal_hits += (e[kmer_idx] - b[kmer_idx]);
+      }
       kmer_idx++;
-    }
   }
   assert(kmer_idx == nkmers);
   auto end = std::chrono::system_clock::now();
@@ -441,17 +437,16 @@ void AccAlign::pigeonhole_query(char *Q, size_t rlen, vector<Region> &candidate_
     return;
 
   uint32_t top_pos[nkmers];
-  int step_off[nkmers], rel_off[nkmers];
+  int rel_off[nkmers];
   uint32_t MAX_POS = numeric_limits<uint32_t>::max();
 
   start = std::chrono::system_clock::now();
   // initialize top values with first values for each kmer.
   for (unsigned i = 0; i < nkmers; i++) {
-    if (b[i] < e[i]) {
+    if (b[i] < e[i] && e[i] - b[i] < max_occ) {
       top_pos[i] = posv[b[i]];
-      step_off[i] = i % kmer_step;
-      rel_off[i] = (i / kmer_step) * kmer_window;
-      uint32_t shift_pos = rel_off[i] + step_off[i] + ori_slide_bk;
+      rel_off[i] = i * kmer_step;
+      uint32_t shift_pos = rel_off[i] + ori_slide_bk;
       //TODO: for each chrome, happen to < the start pos
       if (top_pos[i] < shift_pos)
         top_pos[i] = 0; // there is insertion before this kmer
@@ -470,53 +465,49 @@ void AccAlign::pigeonhole_query(char *Q, size_t rlen, vector<Region> &candidate_
   int last_cov = 0;
 
   start = std::chrono::system_clock::now();
+
+  Region unique_regions[ntotal_hits];
+  size_t idx = 0;
   while (nprocessed < ntotal_hits) {
     //find min
     uint32_t *min_item = min_element(top_pos, top_pos + nkmers);
     uint32_t min_pos = *min_item;
     int min_kmer = min_item - top_pos;
 
-    // kick off prefetch for next round
-    __builtin_prefetch(posv + b[min_kmer] + 1);
+    if (e[min_kmer] - b[min_kmer] < max_occ){
+      // kick off prefetch for next round
+      __builtin_prefetch(posv + b[min_kmer] + 1);
 
     // if previous min element was same as current one, increment coverage.
     // otherwise, check if last min element's coverage was high enough to make it a candidate region
-    if (min_pos == last_pos) {
-      last_cov++;
-    } else {
-      if (last_cov >= err_threshold) {
-        Region r;
-        r.cov = last_cov;
-        r.rs = last_pos;
-        r.qs = last_qs;
-        r.qe = r.qs + kmer_len;
-        //cerr << "Adding " << last_pos << " with cov " << r.cov <<
-        //    " as candidate for dir " << S << endl;
-        assert(r.rs != MAX_POS && r.rs < MAX_POS);
+      if (min_pos == last_pos) {
+        last_cov++;
+      } else {
+        if (nprocessed != 0){
+          Region &r = unique_regions[idx];
+          ++idx;
+          r.cov = last_cov;
+          r.rs = last_pos;
+          r.qs = last_qs;
+          r.qe = r.qs + kmer_len;
+          assert(r.rs != MAX_POS && r.rs < MAX_POS);
 
-        // add high coverage regions up front so that we dont have to
-        // sort later.
-        // NOTE: Inserting at vector front is crazy expensive. If we
-        // simply change > max_cov to >=max_cov, timing will blow up.
-        // Just keep it > max_cov as we are anyway interested in only
-        // the region with max cov, and we need to embed all regions any
-        // way.
-        if (last_cov > max_cov) {
-          max_cov = last_cov;
-          best = candidate_regions.size();
+          if (last_cov > max_cov)
+            max_cov = last_cov;
         }
-        candidate_regions.push_back(r);
+
+        last_cov = 1;
+        last_qs = min_kmer * kmer_len + ori_slide_bk;
       }
-      last_cov = 1;
-      last_qs = min_kmer * kmer_len + ori_slide_bk;
     }
+
     last_pos = min_pos;
 
     // add next element
     b[min_kmer]++;
     uint32_t next_pos = b[min_kmer] < e[min_kmer] ? posv[b[min_kmer]] : MAX_POS;
     if (next_pos != MAX_POS) {
-      uint32_t shift_pos = rel_off[min_kmer] + step_off[min_kmer] + ori_slide_bk;
+      uint32_t shift_pos = rel_off[min_kmer] + ori_slide_bk;
       //TODO: for each chrome, happen to < the start pos
       if (next_pos < shift_pos)
         *min_item = 0; // there is insertion before this kmer
@@ -529,18 +520,31 @@ void AccAlign::pigeonhole_query(char *Q, size_t rlen, vector<Region> &candidate_
   }
 
   // we will have the last few positions not processed. check here.
-  if (last_cov >= err_threshold && last_pos != MAX_POS) {
-    Region r;
+  if (last_pos != MAX_POS) {
+    Region &r = unique_regions[idx];
+    ++idx;
     r.cov = last_cov;
     r.rs = last_pos;
     r.qs = last_qs;
     r.qe = r.qs + kmer_len;
+    assert(r.rs != MAX_POS && r.rs < MAX_POS);
+
     if (last_cov > max_cov) {
       max_cov = last_cov;
-      best = candidate_regions.size();
     }
-    candidate_regions.push_back(r);
   }
+
+  err_threshold = max(err_threshold, max_cov-1);
+  for (size_t i = 0; i < idx; i++){
+    Region &r = unique_regions[i];
+    if (r.cov >= err_threshold){
+      if (r.cov == max_cov)
+        best = candidate_regions.size();
+
+      candidate_regions.push_back(move(r));
+    }
+  }
+
   end = std::chrono::system_clock::now();
   elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
   hit_count_time += elapsed.count();
@@ -553,16 +557,45 @@ void AccAlign::pghole_wrapper(Read &R,
                               unsigned &rbest,
                               unsigned ori_slide) {
   size_t rlen = strlen(R.seq);
-  pigeonhole_query(R.fwd, rlen, fcandidate_regions, '+', 2, fbest, ori_slide);
-  pigeonhole_query(R.rev, rlen, rcandidate_regions, '-', 2, rbest, ori_slide);
+  unsigned kmer_step = kmer_len;
+
+  // MAX_OCC, cov >= 2
+  pigeonhole_query(R.fwd, rlen, fcandidate_regions, '+', 2, kmer_step, MAX_OCC, fbest, ori_slide);
+  pigeonhole_query(R.rev, rlen, rcandidate_regions, '-', 2, kmer_step, MAX_OCC, rbest, ori_slide);
   unsigned nfregions = fcandidate_regions.size();
   unsigned nrregions = rcandidate_regions.size();
 
-  // if we don't find any regions, try lowering the error threshold
-  if (!nfregions && !nrregions) {
-    pigeonhole_query(R.fwd, rlen, fcandidate_regions, '+', 1, fbest, ori_slide);
-    pigeonhole_query(R.rev, rlen, rcandidate_regions, '-', 1, rbest, ori_slide);
+  while (kmer_step >= 2 && !nfregions && !nrregions){
+    kmer_step = kmer_step / 2;
+    pigeonhole_query(R.fwd, rlen, fcandidate_regions, '+', 2, kmer_step, MAX_OCC, fbest, ori_slide);
+    pigeonhole_query(R.rev, rlen, rcandidate_regions, '-', 2, kmer_step, MAX_OCC, rbest, ori_slide);
+
+    nfregions = fcandidate_regions.size();
+    nrregions = rcandidate_regions.size();
   }
+//
+//  // if we don't find any regions, try lowering the error threshold
+//  if (!nfregions && !nrregions) {
+//    // double seeds, MAX_OCC, cov >= 2
+//    pigeonhole_query(R.fwd, rlen, fcandidate_regions, '+', 2, kmer_len/2, MAX_OCC, fbest, ori_slide);
+//    pigeonhole_query(R.rev, rlen, rcandidate_regions, '-', 2, kmer_len/2, MAX_OCC, rbest, ori_slide);
+//
+//    nfregions = fcandidate_regions.size();
+//    nrregions = rcandidate_regions.size();
+//    if (!nfregions && !nrregions) {
+//      // 10 times MAX_OCC, cov >= 2
+//      pigeonhole_query(R.fwd, rlen, fcandidate_regions, '+', 2, kmer_len, MAX_OCC * 10, fbest, ori_slide);
+//      pigeonhole_query(R.rev, rlen, rcandidate_regions, '-', 2, kmer_len, MAX_OCC * 10, rbest, ori_slide);
+//
+//      nfregions = fcandidate_regions.size();
+//      nrregions = rcandidate_regions.size();
+//      if (!nfregions && !nrregions) {
+//        // 10 times MAX_OCC, cov >= 1
+//        pigeonhole_query(R.fwd, rlen, fcandidate_regions, '+', 1, kmer_len, MAX_OCC * 10, fbest, ori_slide);
+//        pigeonhole_query(R.rev, rlen, rcandidate_regions, '-', 1, kmer_len, MAX_OCC * 10, rbest, ori_slide);
+//      }
+//    }
+//  }
 }
 
 void AccAlign::embed_wrapper_pair(Read &R1, Read &R2,
@@ -741,54 +774,84 @@ void AccAlign::map_read(Read &R) {
     return;
   }
 
-  start = std::chrono::system_clock::now();
-  // before doing embedding, move highest cov region to front
-  if (nfregions > 1 && fbest != 0) {
-    iter_swap(fcandidate_regions.begin() + fbest, fcandidate_regions.begin());
-  }
-  if (nrregions > 1 && rbest != 0) {
-    iter_swap(rcandidate_regions.begin() + rbest, rcandidate_regions.begin());
-  }
-  end = std::chrono::system_clock::now();
-  elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
-  swap_time += elapsed.count();
-  seeding_time += elapsed.count();
-
-  unsigned fnext, rnext;
-  start = std::chrono::system_clock::now();
-  embed_wrapper(R, false, fcandidate_regions, rcandidate_regions, fbest, fnext, rbest, rnext);
-  end = std::chrono::system_clock::now();
-  elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
-  embedding_time += elapsed.count();
-
-  start = std::chrono::system_clock::now();
-
-  if (nfregions == 0) {
-    if (nrregions == 0)
-      return;
-    mark_for_extension(R, '-', rcandidate_regions[rbest]);
-  } else if (nrregions == 0) {
-    mark_for_extension(R, '+', fcandidate_regions[fbest]);
-  } else {
-    // pick the candidate with smallest embed dist
-    // if fwd/rev have same embed_dist, take the hcov one
-    // if hcov one not the min dist, take the one with smaller pos (to be consistent with gpu)
-    if (fcandidate_regions[fbest].embed_dist < rcandidate_regions[rbest].embed_dist) {
-      mark_for_extension(R, '+', fcandidate_regions[fbest]);
-    } else if (fcandidate_regions[fbest].embed_dist > rcandidate_regions[rbest].embed_dist) {
-      mark_for_extension(R, '-', rcandidate_regions[rbest]);
-    } else {
-      if (fcandidate_regions[fbest].rs < rcandidate_regions[rbest].rs) {
-        mark_for_extension(R, '+', fcandidate_regions[fbest]);
-      } else {
-        mark_for_extension(R, '-', rcandidate_regions[rbest]);
+  if (extend_all){
+    int max_as = INT_MIN;
+    char strand = '+';
+    Region r;
+    for (Region &region: fcandidate_regions){
+      char *s = R.fwd ;
+      Alignment a;
+      score_region(R, s, region, a);
+      if (region.score > max_as){
+        r = region;
+        max_as = region.score;
       }
     }
+
+    for (Region &region: rcandidate_regions){
+      char *s = R.rev ;
+      Alignment a;
+      score_region(R, s, region, a);
+      if (region.score > max_as){
+        r = region;
+        strand = '-';
+        max_as = region.score;
+      }
+    }
+
+    R.best_region = r;
+    R.strand = strand;
+  } else{
+    start = std::chrono::system_clock::now();
+    // before doing embedding, move highest cov region to front
+    if (nfregions > 1 && fbest != 0) {
+      iter_swap(fcandidate_regions.begin() + fbest, fcandidate_regions.begin());
+    }
+    if (nrregions > 1 && rbest != 0) {
+      iter_swap(rcandidate_regions.begin() + rbest, rcandidate_regions.begin());
+    }
+    end = std::chrono::system_clock::now();
+    elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+    swap_time += elapsed.count();
+    seeding_time += elapsed.count();
+
+    unsigned fnext, rnext;
+    start = std::chrono::system_clock::now();
+    embed_wrapper(R, false, fcandidate_regions, rcandidate_regions, fbest, fnext, rbest, rnext);
+    end = std::chrono::system_clock::now();
+    elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+    embedding_time += elapsed.count();
+
+    start = std::chrono::system_clock::now();
+
+    if (nfregions == 0) {
+      if (nrregions == 0)
+        return;
+      mark_for_extension(R, '-', rcandidate_regions[rbest]);
+    } else if (nrregions == 0) {
+      mark_for_extension(R, '+', fcandidate_regions[fbest]);
+    } else {
+      // pick the candidate with smallest embed dist
+      // if fwd/rev have same embed_dist, take the hcov one
+      // if hcov one not the min dist, take the one with smaller pos (to be consistent with gpu)
+      if (fcandidate_regions[fbest].embed_dist < rcandidate_regions[rbest].embed_dist) {
+        mark_for_extension(R, '+', fcandidate_regions[fbest]);
+      } else if (fcandidate_regions[fbest].embed_dist > rcandidate_regions[rbest].embed_dist) {
+        mark_for_extension(R, '-', rcandidate_regions[rbest]);
+      } else {
+        if (fcandidate_regions[fbest].rs < rcandidate_regions[rbest].rs) {
+          mark_for_extension(R, '+', fcandidate_regions[fbest]);
+        } else {
+          mark_for_extension(R, '-', rcandidate_regions[rbest]);
+        }
+      }
+    }
+
+    end = std::chrono::system_clock::now();
+    elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+    mapqTime += elapsed.count();
   }
 
-  end = std::chrono::system_clock::now();
-  elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
-  mapqTime += elapsed.count();
 }
 
 void AccAlign::map_paired_read(Read &mate1, Read &mate2) {
@@ -1401,16 +1464,16 @@ void AccAlign::score_region(Read &r, char *qseq, Region &region,
   unsigned qlen = strlen(r.seq);
 
   // if the region has a embed distance of 0, then its an exact match
-  if (!region.embed_dist || !enable_extension) {
+  if (!extend_all && (!region.embed_dist || !enable_extension)) {
     // XXX: the scoring here of setting it to len is based on the
     // assumption that our current ssw impl. gives a best score of 150
     region.score = qlen * SC_MCH;
     r.mapq = 60;
   } else {
     uint32_t qs, qe, qs0, qe0, rs, re, rs0, re0, l, beginclip = 0, endclip = 0;
-    qs = r.best_region.qs;
-    qe = r.best_region.qe;
-    rs = r.best_region.rs + qs;
+    qs = region.qs;
+    qe = region.qe;
+    rs = region.rs + qs;
     re = rs + kmer_len;
     l = qs;
     l += l * SC_MCH + END_BONUS > GAPO ? (l * SC_MCH + END_BONUS - GAPO) / GAPE : 0;
@@ -1458,8 +1521,8 @@ void AccAlign::score_region(Read &r, char *qseq, Region &region,
     }
 
     // matched seed
-    for (unsigned j = qs; j < qs + kmer_len; ++j) {
-      dp_score += qseq[j] == ref.c_str()[r.best_region.rs + j] ? SC_MCH : -SC_MIS;
+    for (unsigned j = 0; j < min(kmer_len, qlen - qs); ++j) {
+      dp_score += qseq[qs + j] == ref.c_str()[rs + j] ? SC_MCH : -SC_MIS;
     }
     uint32_t cigar_m = kmer_len << 4;
 
@@ -1534,7 +1597,7 @@ void AccAlign::score_region(Read &r, char *qseq, Region &region,
     if (endclip)
       cigar_string << endclip << 'S';
 
-    r.mapq = get_mapq(dp_score, r.best, r.secBest, qlen, qlen+edit_mismatch, r.best_region.cov);
+    r.mapq = get_mapq(dp_score, r.best, r.secBest, qlen, qlen+edit_mismatch, region.cov);
     a.cigar_string = cigar_string.str();
     a.ref_begin = 0;
     region.score = dp_score;
@@ -1572,7 +1635,6 @@ void AccAlign::save_region(Read &R, size_t rlen, Region &region,
 
   R.pos = R.pos - offset[R.tid] + 1;
   R.as = region.score;
-
 }
 
 void AccAlign::align_read(Read &R) {
@@ -1583,7 +1645,8 @@ void AccAlign::align_read(Read &R) {
 
   Alignment a;
   size_t rlen = strlen(R.seq);
-  score_region(R, s, region, a);
+  if (!extend_all)
+    score_region(R, s, region, a);
   save_region(R, rlen, region, a);
 
   auto end = std::chrono::system_clock::now();
@@ -1813,12 +1876,8 @@ int main(int ac, char **av) {
         enable_wfa_extension = true;
         opn += 1;
         flag = true;
-      } else if (av[opn][1] == 's') {
-        enable_softclip = true;
-        opn += 1;
-        flag = true;
-      } else if (av[opn][1] == 'a') {
-        enable_as_based_mapq = true;
+      } else if (av[opn][1] == 'd') {
+        extend_all = true;
         opn += 1;
         flag = true;
       } else {
