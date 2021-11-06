@@ -14,6 +14,7 @@ struct Region {
   uint16_t cov;
   uint16_t embed_dist;
   int score;
+  std::vector<uint32_t> matched_intervals;  // list of start pos of matched seeds in read that indicate to this region
 
   bool operator()(Region &X, Region &Y) {
     if (X.embed_dist == Y.embed_dist)
@@ -29,6 +30,7 @@ struct Read {
   uint32_t pos;
   char strand;
   short mapq;
+  short kmer_step; //kmer_step used that find the seed
   Region best_region;
 
   friend gzFile &operator>>(gzFile &in, Read &r);

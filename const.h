@@ -19,7 +19,7 @@
 
 //Embedding related
 #define EMBED_PAD 4
-#define NUM_STR 1 //r
+#define NUM_STR 3 //r
 #define NUM_CHAR 5 // num of chars in strings
 #define MAX_ELEN 1500 //the maximum length of random string
 #define RBITS_PER_STRING (MAX_ELEN * NUM_CHAR)

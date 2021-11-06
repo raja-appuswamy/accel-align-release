@@ -3,6 +3,74 @@
 #define EMBED_PAD 4
 #define CGK2_EMBED 1
 
+int Embedding::cgk2_unmatched(const char *r, const char *ref,
+                              const vector<uint32_t> &mch,
+                              const unsigned rlen,
+                              const unsigned kmer_step,
+                              const int threshold,
+                              const int strid) {
+  int elen = efactor * rlen, nmismatch = 0;
+  char embeddedQ[elen];
+
+  // embed ref: cadidate pos
+  int i = 0, m_idx = 0, j = 0;
+  while (i < rlen) {
+    if (i != mch[m_idx]) {
+      uint8_t s = ref[i];
+      char bit = hash_eb[BITPOS(strid, j, s)];
+      if (!bit) {
+        embeddedQ[j] = s;
+        j++;
+      } else {
+        embeddedQ[j + 1] = embeddedQ[j] = s;
+        j += 2;
+      }
+      i++;
+    } else {
+      i += kmer_step;
+      m_idx++;
+    }
+  }
+
+  //append the rest with EMBED_PAD
+  //because the embedded candidate may be longer than j and need to count nmismatch with embeddedQ[j]
+  for (; j < elen; j++) {
+    embeddedQ[j] = EMBED_PAD;
+  }
+
+  //reset idx, embed read and cal mismatch
+  i = j = m_idx = 0;
+  while (i < rlen) {
+    if (i != mch[m_idx]){
+      uint8_t s = r[i];
+      char bit = hash_eb[BITPOS(strid, j, s)];
+      if (!bit) {
+        nmismatch += (embeddedQ[j] == s ? 0 : 1);
+        j++;
+      } else {
+        nmismatch += (embeddedQ[j] == s ? 0 : 1);
+        nmismatch += (embeddedQ[j + 1] == s ? 0 : 1);
+        j += 2;
+      }
+      if (nmismatch > threshold) {
+        nmismatch = elen;
+        goto end;
+      }
+      i++;
+    }else{
+      i += kmer_step;
+      m_idx++;
+    }
+  }
+
+  for (; j < elen; j++)
+    nmismatch += (embeddedQ[j] == EMBED_PAD ? 0 : 1);
+
+  assert(j == elen);
+  end:
+  return nmismatch;
+}
+
 void Embedding::cgk2_embedQ(const char *oridata, unsigned rlen, int strid, char *embeddedQ) {
   int j = 0;
   int elen = efactor * rlen;
@@ -191,6 +259,62 @@ void Embedding::embeddata_pair(vector<Region> &candidate_regions, char embeddedQ
   auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
   embed_time += elapsed.count();
 }
+
+void Embedding::embed_unmatch_iter(vector<Region> &candidate_regions,
+                                               const char *ptr_ref,
+                                               const char *r,
+                                               const unsigned rlen,
+                                               const unsigned kmer_step,
+                                               int &best_threshold,
+                                               int &next_threshold,
+                                               unsigned &best_idx, unsigned &next_idx) {
+
+  auto start = std::chrono::system_clock::now();
+
+  int elen = rlen * efactor, nmismatch;
+
+  for (unsigned i = 0; i < candidate_regions.size(); ++i) {
+    Region &region = candidate_regions[i];
+    region.embed_dist = elen;
+
+    for (unsigned strid = 0; strid < NUM_STR; ++strid){
+      if (best_threshold == 0 && next_threshold == 0) {
+        // if we already have 2 exact match (one for best, one for second best for mapq), look for exact matches only
+        nmismatch = (memcmp(r, ptr_ref + region.rs, rlen) == 0 ? 0 : elen);
+      } else {
+        nmismatch = cgk2_unmatched(r, ptr_ref + region.rs, region.matched_intervals, rlen, kmer_step, next_threshold, strid);
+      }
+      region.embed_dist = region.embed_dist < nmismatch ? region.embed_dist : nmismatch;
+
+      // set best and next idx so that we dont have to sort regions later
+      // pick the minimal pos hit when several hits have same embed dist and the best one is not the hcov(0)
+      if (nmismatch < best_threshold ||
+          (nmismatch == best_threshold && best_idx != 0 && region.rs < candidate_regions[best_idx].rs)) {
+        if (i != best_idx){
+          next_threshold = best_threshold;
+          next_idx = best_idx;
+        }
+        best_threshold = nmismatch;
+        best_idx = i;
+      } else if (nmismatch < next_threshold) {
+        if (i != best_idx){
+          next_threshold = nmismatch;
+          next_idx = i;
+        }
+      }
+
+      // if embed_dist is 0/1, no need to embed again
+      if (region.embed_dist == 0 || region.embed_dist == 1)
+        break;
+    }
+
+  }
+
+  auto end = std::chrono::system_clock::now();
+  auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+  embed_time += elapsed.count();
+}
+
 
 void Embedding::embeddata_iterative_update(vector<Region> &candidate_regions,
                                            const char **input, unsigned ninput, unsigned rlen,
