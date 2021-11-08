@@ -401,9 +401,9 @@ Embedding::Embedding() {
 #endif
 
   time_t seed = time(NULL);
-  srand(seed);
+  //srand(seed);
   cerr << "Embedding using random seed " << seed << endl;
-  //srand(1559063236);
+  srand(1559063236);
   cerr << "Creating " << NUM_STR << " random string(s) of length: " <<
        MAX_ELEN << endl;
   embed_time = 0;
