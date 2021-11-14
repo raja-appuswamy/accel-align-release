@@ -84,7 +84,10 @@ class AccAlign {
   void score_region(Read &r, char *qseq, Region &region,
                     Alignment &a);
   void sam_header(void);
-
+  void extend_pair(Read &mate1, Read &mate2,
+                   vector<Region> &candidate_regions_f1, vector<Region> &candidate_regions_r2,
+                   bool flag_f1[], bool flag_r2[], unsigned &best_f1, unsigned &best_r2,
+                   int &best_threshold, int &next_threshold, char strand);
  public:
   uint32_t *keyv, *posv;
 

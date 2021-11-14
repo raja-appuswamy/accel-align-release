@@ -781,13 +781,14 @@ void AccAlign::pigeonhole_query_mates(char *Q,
   start = std::chrono::system_clock::now();
 
   Region r;
+  r.matched_intervals.reserve(nkmers);
   while (nprocessed < ntotal_hits) {
     //find min
     uint32_t *min_item = min_element(top_pos, top_pos + nkmers);
     uint32_t min_pos = *min_item;
     int min_kmer = min_item - top_pos;
 
-    if ((!high_freq && e[min_kmer] - b[min_kmer] < max_occ) || high_freq){
+    if ((!high_freq && e[min_kmer] - b[min_kmer] < max_occ) || high_freq) {
       // kick off prefetch for next round
       __builtin_prefetch(posv + b[min_kmer] + 1);
 
@@ -795,17 +796,18 @@ void AccAlign::pigeonhole_query_mates(char *Q,
       // otherwise, check if last min element's coverage was high enough to make it a candidate region
 
       if (min_pos == last_pos) {
-//        r.matched_intervals.push_back(last_qs);
+        r.matched_intervals.push_back(last_qs);
         last_cov++;
       } else {
         if (last_cov >= err_threshold) {
           r.cov = last_cov;
           r.rs = last_pos;
-          r.qe = r.qs + kmer_len;
-          r.qs = last_qs;
-//          r.matched_intervals.push_back(last_qs);
+          //          r.qs = last_qs;
+//          r.qe = r.qs + kmer_len;
+          r.matched_intervals.push_back(last_qs);
           //let it be the first match seed, so the left extension could be accurate
-//          r.qs = r.matched_intervals[0];
+          r.qs = r.matched_intervals[0];
+          r.qe = r.qs + kmer_len;
 
           assert(r.rs != MAX_POS && r.rs < MAX_POS);
           candidate_regions.push_back(move(r));
@@ -843,11 +845,12 @@ void AccAlign::pigeonhole_query_mates(char *Q,
     if (last_cov >= err_threshold) {
       r.cov = last_cov;
       r.rs = last_pos;
-      r.qe = r.qs + kmer_len;
-      r.qs = last_qs;
-//      r.matched_intervals.push_back(last_qs);
+//            r.qs = last_qs;
+//      r.qe = r.qs + kmer_len;
+      r.matched_intervals.push_back(last_qs);
       //let it be the first match seed, so the left extension could be accurate
-//      r.qs = r.matched_intervals[0];
+      r.qs = r.matched_intervals[0];
+      r.qe = r.qs + kmer_len;
 
       if (last_cov > max_cov) {
         max_cov = last_cov;
@@ -1212,6 +1215,77 @@ void AccAlign::map_read(Read &R) {
 
 }
 
+void AccAlign::extend_pair(Read &mate1, Read &mate2,
+                           vector<Region> &candidate_regions_f1, vector<Region> &candidate_regions_r2,
+                           bool flag_f1[], bool flag_r2[], unsigned &best_f1, unsigned &best_r2,
+                           int &best_threshold, int &next_threshold, char strand) {
+  const char *ptr_ref = ref.c_str();
+  char *seq1, *seq2;
+  if (strand == '+') { //f1r2
+    seq1 = mate1.fwd;
+    seq2 = mate2.rev;
+  } else { //r1f2
+    seq1 = mate1.rev;
+    seq2 = mate2.fwd;
+  }
+
+  //extend mate1
+  for (unsigned i = 0; i < candidate_regions_f1.size(); ++i) {
+    if (!flag_f1[i]) {
+      continue;
+    }
+
+    Region &region = candidate_regions_f1[i];
+    Alignment a;
+    int rs_bk = region.rs;
+    score_region(mate1, seq1, region, a);
+    region.rs = rs_bk; // sore_region will justify the start pos, convert back, because the later itr need it
+  }
+
+  //extend mate2
+  for (unsigned i = 0; i < candidate_regions_r2.size(); ++i) {
+    if (!flag_r2[i]) {
+      continue;
+    }
+
+    Region &region = candidate_regions_r2[i];
+    Alignment a;
+    int rs_bk = region.rs;
+    score_region(mate2, seq2, region, a);
+    region.rs = rs_bk; // sore_region will justify the start pos, convert back, because the later itr need it
+
+    Region tmp;
+    tmp.rs = region.rs < pairdis ? 0 : region.rs - pairdis;
+    auto start = lower_bound(candidate_regions_f1.begin(), candidate_regions_f1.end(), tmp,
+                             [](const Region &left, const Region &right) {
+                               return left.rs < right.rs;
+                             }
+    );
+
+    tmp.rs = region.rs + pairdis;
+    auto end = upper_bound(candidate_regions_f1.begin(), candidate_regions_f1.end(), tmp,
+                           [](const Region &left, const Region &right) {
+                             return left.rs < right.rs;
+                           }
+    );
+
+    assert(start != end);
+    for (auto itr = start; itr != end; ++itr) {
+      int sum_as = region.score + itr->score;
+      if (sum_as > best_threshold) {
+        best_f1 = itr - candidate_regions_f1.begin();
+        best_r2 = i;
+        best_threshold = sum_as;
+      } else if (sum_as > next_threshold) {
+        next_threshold = sum_as;
+      }
+    }
+  }
+
+//  best_threshold = -best_threshold;  //get the neg of as, so that lower score means better, consist
+//  next_threshold = -next_threshold;
+}
+
 void AccAlign::map_paired_read(Read &mate1, Read &mate2) {
 
   auto start = std::chrono::system_clock::now();
@@ -1242,6 +1316,39 @@ void AccAlign::map_paired_read(Read &mate1, Read &mate2) {
   if (!has_f1r2 && !has_r1f2) {
     mate1.strand = '*';
     mate2.strand = '*';
+    return;
+  }
+
+  if (extend_all) {
+    int best_f1r2, next_f1r2, best_r1f2, next_r1f2;
+    best_f1r2 = next_f1r2 = best_r1f2 = next_r1f2 = INT_MIN;
+
+    if (has_f1r2)
+      extend_pair(mate1, mate2, region_f1, region_r2, flag_f1, flag_r2, best_f1, best_r2, best_f1r2, next_f1r2, '+');
+    if (has_r1f2)
+      extend_pair(mate1, mate2, region_r1, region_f2, flag_r1, flag_f2, best_r1, best_f2, best_r1f2, next_r1f2, '-');
+
+    // if there is no candidates, the strand will remain *
+    int secmin_dist;
+    if (best_f1r2 >= best_r1f2) {
+      mark_for_extension(mate1, '+', region_f1[best_f1]);
+      mark_for_extension(mate2, '-', region_r2[best_r2]);
+      if (best_r1f2 > next_f1r2)
+        secmin_dist = best_r1f2;
+      else
+        secmin_dist = next_f1r2;
+    } else {
+      mark_for_extension(mate2, '+', region_f2[best_f2]);
+      mark_for_extension(mate1, '-', region_r1[best_r1]);
+      if (best_f1r2 > next_r1f2)
+        secmin_dist = best_f1r2;
+      else
+        secmin_dist = next_r1f2;
+    }
+
+    mate1.best = mate2.best = min(best_f1r2, best_r1f2);
+    mate1.secBest = mate2.secBest = secmin_dist;
+
     return;
   }
 
@@ -1943,8 +2050,8 @@ void AccAlign::align_read(Read &R) {
 
   Alignment a;
   size_t rlen = strlen(R.seq);
-  if (!extend_all)
-    score_region(R, s, region, a);
+//  if (!extend_all)
+  score_region(R, s, region, a);
   save_region(R, rlen, region, a);
 
   auto end = std::chrono::system_clock::now();
