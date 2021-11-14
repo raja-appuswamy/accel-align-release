@@ -729,11 +729,8 @@ void AccAlign::pigeonhole_query_mates(char *Q,
     size_t hash = (k & mask) % MOD;
     b[kmer_idx] = keyv[hash];
     e[kmer_idx] = keyv[hash + 1];
-    if (e[kmer_idx] - b[kmer_idx] < max_occ) {
-      ntotal_hits += (e[kmer_idx] - b[kmer_idx]);
-    }else{
+    if (e[kmer_idx] - b[kmer_idx] >= max_occ)
       nseed_freq++;
-    }
     kmer_idx++;
   }
   assert(kmer_idx == nkmers);
@@ -741,12 +738,17 @@ void AccAlign::pigeonhole_query_mates(char *Q,
   auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
   keyvTime += elapsed.count();
 
+  if (nseed_freq > nkmers / 2)
+    high_freq = true;
+
+  for (size_t i = 0; i < nkmers; i++) {
+    if ((!high_freq && e[i] - b[i] < max_occ) || high_freq)
+      ntotal_hits += (e[i] - b[i]);
+  }
+
   // if we have no hits, we are done
   if (!ntotal_hits)
     return;
-
-  if (nseed_freq > nkmers/2)
-    high_freq = true;
 
   uint32_t top_pos[nkmers];
   int rel_off[nkmers];
@@ -755,7 +757,7 @@ void AccAlign::pigeonhole_query_mates(char *Q,
   start = std::chrono::system_clock::now();
   // initialize top values with first values for each kmer.
   for (unsigned i = 0; i < nkmers; i++) {
-    if (b[i] < e[i] && e[i] - b[i] < max_occ) {
+    if (b[i] < e[i] && ((!high_freq && e[i] - b[i] < max_occ) || high_freq)) {
       top_pos[i] = posv[b[i]];
       rel_off[i] = i * kmer_step;
       uint32_t shift_pos = rel_off[i] + ori_slide_bk;
@@ -785,7 +787,7 @@ void AccAlign::pigeonhole_query_mates(char *Q,
     uint32_t min_pos = *min_item;
     int min_kmer = min_item - top_pos;
 
-    if (e[min_kmer] - b[min_kmer] < max_occ) {
+    if ((!high_freq && e[min_kmer] - b[min_kmer] < max_occ) || high_freq){
       // kick off prefetch for next round
       __builtin_prefetch(posv + b[min_kmer] + 1);
 
@@ -870,7 +872,7 @@ void AccAlign::pghole_wrapper_mates(Read &R,
                                     unsigned ori_slide,
                                     unsigned kmer_step, unsigned max_occ, bool &high_freq) {
   unsigned rlen = strlen(R.seq);
-  
+
   // MAX_OCC, cov >= 2
   pigeonhole_query_mates(R.fwd, rlen, fcandidate_regions, '+', fbest, ori_slide, 2, kmer_step, max_occ, high_freq);
   pigeonhole_query_mates(R.rev, rlen, rcandidate_regions, '-', rbest, ori_slide, 2, kmer_step, max_occ, high_freq);
@@ -898,9 +900,9 @@ void AccAlign::pghole_wrapper_pair(Read &mate1, Read &mate2,
   unsigned slide1 = 0, slide2 = 0;
 
   bool high_freq_1 = false, high_freq_2 = false; //read is from high repetitive region
-  int mac_occ_1 = INT_MAX, mac_occ_2 = INT_MAX;
+  int mac_occ_1 = MAX_OCC, mac_occ_2 = MAX_OCC;
 
-  while(slide1 < slide && slide2 < slide) {
+  while (slide1 < slide && slide2 < slide) {
     if (has_f1r2 || has_r1f2)
       break;
 
