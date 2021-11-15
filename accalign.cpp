@@ -496,10 +496,10 @@ void AccAlign::pigeonhole_query(char *Q,
         if (nprocessed != 0) {
           r->cov = last_cov;
           r->rs = last_pos;
-          r->qe = r->qs + kmer_len;
           r->matched_intervals.push_back(last_qs);
           //let it be the first match seed, so the left extension could be accurate
           r->qs = r->matched_intervals[0];
+          r->qe = r->qs + kmer_len;
           assert(r->rs != MAX_POS && r->rs < MAX_POS);
 
           if (last_cov > max_cov)
@@ -535,9 +535,9 @@ void AccAlign::pigeonhole_query(char *Q,
   if (last_pos != MAX_POS) {
     r->cov = last_cov;
     r->rs = last_pos;
-    r->qe = r->qs + kmer_len;
     r->matched_intervals.push_back(last_qs);
     r->qs = r->matched_intervals[0];
+    r->qe = r->qs + kmer_len;
     assert(r->rs != MAX_POS && r->rs < MAX_POS);
 
     if (last_cov > max_cov) {
@@ -962,6 +962,30 @@ void AccAlign::pghole_wrapper(Read &R,
     nrregions = rcandidate_regions.size();
   }
 }
+void AccAlign::embed_wrapper_pair(Read &R1, Read &R2,
+                                  vector<Region> &candidate_regions_f1, vector<Region> &candidate_regions_r2,
+                                  bool flag_f1[], bool flag_r2[], unsigned &best_f1, unsigned &best_r2,
+                                  int &best_threshold, int &next_threshold, char strand) {
+  const char *ptr_ref = ref.c_str();
+  char *seq1, *seq2;
+  if (strand == '+') {
+    //f1r2
+    seq1 = R1.fwd;
+    seq2 = R2.rev;
+  } else {
+    //r1f2
+    seq1 = R1.rev;
+    seq2 = R2.fwd;
+  }
+
+  //embed r1
+  embedding->embed_unmatch(candidate_regions_f1, ptr_ref, seq1, strlen(R1.seq), R1.kmer_step, flag_f1);
+  //embed r2
+  embedding->embed_unmatch_pair(candidate_regions_f1, candidate_regions_r2, ptr_ref, seq2, strlen(R2.seq), R2.kmer_step,
+                                flag_r2, pairdis, best_threshold, next_threshold, best_f1, best_r2);
+
+}
+
 
 void AccAlign::embed_wrapper_pair(Read &R1, Read &R2,
                                   vector<Region> &candidate_regions_f1, vector<Region> &candidate_regions_r1,
@@ -1356,103 +1380,36 @@ void AccAlign::map_paired_read(Read &mate1, Read &mate2) {
   // But before, rearrange so that regions with high coverage are at the top
   //no need to swap, just embed the best and next first..
   start = std::chrono::system_clock::now();
-  embed_wrapper_pair(mate1, mate2,
-                     region_f1, region_r1,
-                     region_f2, region_r2,
-                     flag_f1, flag_r1, flag_f2, flag_r2,
-                     best_f1, next_f1, best_r1, next_r1,
-                     best_f2, next_f2, best_r2, next_r2);
+  int best_f1r2 = INT_MAX, next_f1r2 = INT_MAX, best_r1f2 = INT_MAX, next_r1f2 = INT_MAX;
+  if (has_f1r2)
+    embed_wrapper_pair(mate1, mate2, region_f1, region_r2, flag_f1, flag_r2, best_f1, best_r2, best_f1r2, next_f1r2, '+');
+  if (has_r1f2)
+    embed_wrapper_pair(mate1, mate2, region_r1, region_f2, flag_r1, flag_f2, best_r1, best_f2, best_r1f2, next_r1f2, '-');
+
   delete[] flag_f1;
   delete[] flag_r1;
   delete[] flag_f2;
   delete[] flag_r2;
-  end = std::chrono::system_clock::now();
-  elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
-  embedding_time += elapsed.count();
 
-  // finally, pick regions for further extension. here, we make use of pairing
-  // again by first checking overall, across mate1 and mate2, who has lowest
-  // embed dist. then, we use the fwd or rev strand from that mate as the
-  // deciding factor. if we chose fwd for that mate, we pick rev for other
-  // mate, and vice versa
-  start = std::chrono::system_clock::now();
-
-  int min_dist_f1r2 = INT_MAX, min_dist = INT_MAX, secmin_dist = INT_MAX;
-  Region best_fregion, best_rregion;
-
-  for (unsigned i = 0; i < region_f1.size(); i++) {
-    Region tmp;
-    tmp.rs = region_f1[i].rs < pairdis ? 0 : region_f1[i].rs - pairdis;
-    auto start = lower_bound(region_r2.begin(), region_r2.end(), tmp,
-                             [](const Region &left, const Region &right) {
-                               return left.rs < right.rs;
-                             }
-    );
-
-    tmp.rs = region_f1[i].rs + pairdis;
-    auto end = upper_bound(region_r2.begin(), region_r2.end(), tmp,
-                           [](const Region &left, const Region &right) {
-                             return left.rs < right.rs;
-                           }
-    );
-
-    for (auto itr = start; itr != end; ++itr) {
-      int sum_embed_dist = region_f1[i].embed_dist + itr->embed_dist;
-      if (sum_embed_dist <= min_dist) {
-        secmin_dist = min_dist;
-        min_dist = sum_embed_dist;
-        best_fregion = region_f1[i];
-        best_rregion = *itr;
-      } else if (sum_embed_dist < secmin_dist) {
-        secmin_dist = sum_embed_dist;
-      }
-    }
-  }
-  min_dist_f1r2 = min_dist;
-
-  for (unsigned i = 0; i < region_r1.size(); i++) {
-    Region tmp;
-    tmp.rs = region_r1[i].rs < pairdis ? 0 : region_r1[i].rs - pairdis;
-    auto start = lower_bound(region_f2.begin(), region_f2.end(), tmp,
-                             [](const Region &left, const Region &right) {
-                               return left.rs < right.rs;
-                             }
-    );
-
-    tmp.rs = region_r1[i].rs + pairdis;
-    auto end = upper_bound(region_f2.begin(), region_f2.end(), tmp,
-                           [](const Region &left, const Region &right) {
-                             return left.rs < right.rs;
-                           }
-    );
-
-    for (auto itr = start; itr != end; ++itr) {
-      int sum_embed_dist = region_r1[i].embed_dist + itr->embed_dist;
-      if (sum_embed_dist < min_dist) {
-        secmin_dist = min_dist;
-        min_dist = sum_embed_dist;
-        best_fregion = *itr;
-        best_rregion = region_r1[i];
-      } else if (sum_embed_dist < secmin_dist) {
-        secmin_dist = sum_embed_dist;
-      }
-    }
+  int secmin_dist;
+  if (best_f1r2 <= best_r1f2) {
+    mark_for_extension(mate1, '+', region_f1[best_f1]);
+    mark_for_extension(mate2, '-', region_r2[best_r2]);
+    if (best_r1f2 < next_f1r2)
+      secmin_dist = best_r1f2;
+    else
+      secmin_dist = next_f1r2;
+  } else {
+    mark_for_extension(mate2, '+', region_f2[best_f2]);
+    mark_for_extension(mate1, '-', region_r1[best_r1]);
+    if (best_f1r2 < next_r1f2)
+      secmin_dist = best_f1r2;
+    else
+      secmin_dist = next_r1f2;
   }
 
-
-  // if there is no candidates, the strand will remain *
-  if (min_dist < INT_MAX) {
-    if (min_dist_f1r2 <= min_dist) {
-      mark_for_extension(mate1, '+', best_fregion);
-      mark_for_extension(mate2, '-', best_rregion);
-    } else {
-      mark_for_extension(mate2, '+', best_fregion);
-      mark_for_extension(mate1, '-', best_rregion);
-    }
-
-    mate1.best = mate2.best = min_dist;
-    mate1.secBest = mate2.secBest = secmin_dist;
-  }
+  mate1.best = mate2.best = min(best_f1r2, best_r1f2);
+  mate1.secBest = mate2.secBest = secmin_dist;
 
   end = std::chrono::system_clock::now();
   elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start);

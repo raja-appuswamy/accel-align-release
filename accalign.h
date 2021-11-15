@@ -88,6 +88,10 @@ class AccAlign {
                    vector<Region> &candidate_regions_f1, vector<Region> &candidate_regions_r2,
                    bool flag_f1[], bool flag_r2[], unsigned &best_f1, unsigned &best_r2,
                    int &best_threshold, int &next_threshold, char strand);
+  void embed_wrapper_pair(Read &R1, Read &R2,
+                          vector<Region> &candidate_regions_f1, vector<Region> &candidate_regions_r2,
+                          bool flag_f1[], bool flag_r2[], unsigned &best_f1, unsigned &best_r2,
+                          int &best_threshold, int &next_threshold, char strand);
  public:
   uint32_t *keyv, *posv;
 

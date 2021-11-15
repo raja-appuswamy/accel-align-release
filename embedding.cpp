@@ -393,6 +393,103 @@ void Embedding::embeddata_iterative_update(vector<Region> &candidate_regions,
   embed_time += elapsed.count();
 }
 
+void Embedding::embed_unmatch(vector<Region> &candidate_regions,
+                              const char *ptr_ref,
+                              const char *r,
+                              const unsigned rlen,
+                              const unsigned kmer_step,
+                              bool flag_f1[]) {
+  auto start = std::chrono::system_clock::now();
+
+  int elen = rlen * efactor, nmismatch;
+
+  for (unsigned i = 0; i < candidate_regions.size(); ++i) {
+    if (!flag_f1[i]) {
+      continue;
+    }
+
+    Region &region = candidate_regions[i];
+    region.embed_dist = elen;
+
+    for (unsigned strid = 0; strid < NUM_STR; ++strid) {
+      nmismatch = cgk2_unmatched(r, ptr_ref + region.rs, region.matched_intervals, rlen, kmer_step, elen, strid);
+      region.embed_dist = region.embed_dist < nmismatch ? region.embed_dist : nmismatch;
+
+      // if embed_dist is 0/1, no need to embed again
+      if (region.embed_dist == 0 || region.embed_dist == 1)
+        break;
+    }
+
+  }
+
+  auto end = std::chrono::system_clock::now();
+  auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+  embed_time += elapsed.count();
+}
+
+void Embedding::embed_unmatch_pair(vector<Region> &candidate_regions_f1, vector<Region> &candidate_regions_r2,
+                                   const char *ptr_ref, const char *r, const unsigned rlen, const unsigned kmer_step,
+                                   bool flag_r2[], unsigned pairdis, int &best_threshold, int &next_threshold,
+                                   unsigned &best_f1, unsigned &best_r2) {
+  auto start = std::chrono::system_clock::now();
+
+  int elen = rlen * efactor, nmismatch;
+  best_threshold = next_threshold = elen;
+
+  for (unsigned i = 0; i < candidate_regions_r2.size(); i++) {
+    if (!flag_r2[i]) {
+      continue;
+    }
+
+    Region &region = candidate_regions_r2[i];
+    region.embed_dist = elen;
+
+    Region tmp;
+    tmp.rs = region.rs < pairdis ? 0 : region.rs - pairdis;
+    auto start = lower_bound(candidate_regions_f1.begin(), candidate_regions_f1.end(), tmp,
+                             [](const Region &left, const Region &right) {
+                               return left.rs < right.rs;
+                             }
+    );
+
+    tmp.rs = region.rs + pairdis;
+    auto end = upper_bound(candidate_regions_f1.begin(), candidate_regions_f1.end(), tmp,
+                           [](const Region &left, const Region &right) {
+                             return left.rs < right.rs;
+                           }
+    );
+
+    assert(start != end);
+
+    for (unsigned strid = 0; strid < NUM_STR; ++strid) {
+      nmismatch = cgk2_unmatched(r, ptr_ref + region.rs, region.matched_intervals, rlen, kmer_step,
+                                 min(int (region.embed_dist), next_threshold), strid);
+      region.embed_dist = region.embed_dist < nmismatch ? region.embed_dist : nmismatch;
+
+      // if embed_dist is 0/1, no need to embed again
+      if (region.embed_dist == 0 || region.embed_dist == 1)
+        break;
+    }
+
+    for (auto itr = start; itr != end; ++itr) {
+      int sum_dist = region.embed_dist + itr->embed_dist;
+      if (sum_dist <= best_threshold) {
+        next_threshold = best_threshold;
+        best_threshold = sum_dist;
+        best_f1 = itr - candidate_regions_f1.begin();
+        best_r2 = i;
+      } else if (sum_dist < next_threshold) {
+        next_threshold = sum_dist;
+      }
+    }
+  }
+
+  auto end = std::chrono::system_clock::now();
+  auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+  embed_time += elapsed.count();
+}
+
+
 Embedding::Embedding() {
 #ifdef CGK2_EMBED
   efactor = 2;
