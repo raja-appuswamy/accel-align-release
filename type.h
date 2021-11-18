@@ -2,6 +2,7 @@
 
 #include "const.h"
 
+
 struct Alignment {
   std::string cigar_string;
   int ref_begin;
@@ -17,10 +18,10 @@ struct Region {
   std::vector<uint32_t> matched_intervals;  // list of start pos of matched seeds in read that indicate to this region
 
   bool operator()(Region &X, Region &Y) {
-    if (X.embed_dist == Y.embed_dist)
-      return X.cov > Y.cov;
+    if (X.rs == Y.rs)
+      return X.qs < Y.qs;
     else
-      return X.embed_dist < Y.embed_dist;
+      return X.rs < Y.rs;
   }
 };
 

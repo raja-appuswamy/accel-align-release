@@ -49,6 +49,15 @@ class AccAlign {
                            unsigned &next_f1, unsigned &next_r1, unsigned &next_f2, unsigned &next_r2,
                            bool *&flag_f1, bool *&flag_r1, bool *&flag_f2, bool *&flag_r2,
                            bool &has_f1r2, bool &has_r1f2);
+  void pigeonhole_query_sort(char *Q,
+                                       size_t rlen,
+                                       vector<Region> &candidate_regions,
+                                       char S,
+                                       int err_threshold,
+                                       unsigned kmer_step,
+                                       unsigned max_occ,
+                                       unsigned &best,
+                                       unsigned ori_slide);
   bool pairdis_filter(vector<Region> &in_regions1, vector<Region> &in_regions2,
                       bool flag1[], bool flag2[],
                       unsigned &best1, unsigned &next1, unsigned &best2, unsigned &next2);

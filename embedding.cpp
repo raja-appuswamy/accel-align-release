@@ -15,7 +15,10 @@ int Embedding::cgk2_unmatched(const char *r, const char *ref,
   // embed ref: cadidate pos
   int i = 0, m_idx = 0, j = 0;
   while (i < rlen) {
-    if (i != mch[m_idx]) {
+    if (m_idx < mch.size() && i == mch[m_idx]) {
+      i += kmer_step;
+      m_idx++;
+    } else {
       uint8_t s = ref[i];
       char bit = hash_eb[BITPOS(strid, j, s)];
       if (!bit) {
@@ -26,9 +29,6 @@ int Embedding::cgk2_unmatched(const char *r, const char *ref,
         j += 2;
       }
       i++;
-    } else {
-      i += kmer_step;
-      m_idx++;
     }
   }
 
@@ -41,7 +41,10 @@ int Embedding::cgk2_unmatched(const char *r, const char *ref,
   //reset idx, embed read and cal mismatch
   i = j = m_idx = 0;
   while (i < rlen) {
-    if (i != mch[m_idx]) {
+    if (m_idx < mch.size() && i == mch[m_idx]) {
+      i += kmer_step;
+      m_idx++;
+    } else {
       uint8_t s = r[i];
       char bit = hash_eb[BITPOS(strid, j, s)];
       if (!bit) {
@@ -57,9 +60,6 @@ int Embedding::cgk2_unmatched(const char *r, const char *ref,
         goto end;
       }
       i++;
-    } else {
-      i += kmer_step;
-      m_idx++;
     }
   }
 
@@ -212,8 +212,8 @@ void Embedding::embed_unmatch_iter(vector<Region> &candidate_regions,
     region.embed_dist = elen;
 
     for (unsigned strid = 0; strid < NUM_STR; ++strid) {
-      if (best_threshold == 0 && next_threshold == 0) {
-        // if we already have 2 exact match (one for best, one for second best for mapq), look for exact matches only
+      if (best_threshold <= 1 && next_threshold <= 1) {
+        // if we already have 2 exact match/or dist 1 (one for best, one for second best for mapq), look for exact matches only
         nmismatch = (memcmp(r, ptr_ref + region.rs, rlen) == 0 ? 0 : elen);
       } else {
         nmismatch = cgk2_unmatched(r, ptr_ref + region.rs, region.matched_intervals,
@@ -319,8 +319,13 @@ void Embedding::embed_unmatch_pair(vector<Region> &candidate_regions_f1, vector<
     assert(start != end);
 
     for (unsigned strid = 0; strid < NUM_STR; ++strid) {
-      nmismatch = cgk2_unmatched(r, ptr_ref + region.rs, region.matched_intervals, rlen, kmer_step,
-                                 min(int(region.embed_dist), next_threshold), strid);
+      if (best_threshold <= 1 && next_threshold <= 1) {
+        // if we already have 2 exact match/or dist 1 (one for best, one for second best for mapq), look for exact matches only
+        nmismatch = (memcmp(r, ptr_ref + region.rs, rlen) == 0 ? 0 : elen);
+      } else {
+        nmismatch = cgk2_unmatched(r, ptr_ref + region.rs, region.matched_intervals, rlen, kmer_step,
+                                   min(int(region.embed_dist), next_threshold), strid);
+      }
       region.embed_dist = region.embed_dist < nmismatch ? region.embed_dist : nmismatch;
 
       // if embed_dist is 0/1, no need to embed again
