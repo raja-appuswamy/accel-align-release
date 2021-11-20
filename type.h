@@ -9,6 +9,10 @@ struct Alignment {
   int mismatches;
 };
 
+struct Interval {
+  uint32_t s, e;  // start, end position of the reference match to the whole read
+};
+
 struct Region {
   uint32_t rs, re;  // start, end position of the reference match to the whole read
   uint32_t qs, qe;  // start, end position of matched seed in the query (read)
