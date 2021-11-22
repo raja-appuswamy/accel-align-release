@@ -101,10 +101,9 @@ void AccAlign::print_stats() {
        "\t Hit count time:\t" << hit_count_time / 1000000 << "\n" <<
        "\t Swap high cov time:\t" << swap_time / 1000000 << "\n" <<
        "\t Vpair build (only for pe):\t" << vpair_build_time / 1000000 << "\n" <<
-       "Embedding time(total/actual):\t" << embedding_time / 1000000 << "/" << embedding->embed_time / 1000000 << "\n"
-       <<
+       "Embedding time(total/actual):\t" << embedding->embed_time / 1000000 << "\n" <<
        "Extending time (+ build output string if ENABLE_GPU):\t" << sw_time / 1000000 << "\n" <<
-       "Mapq && mark for extention time:\t" << mapqTime / 1000000 << "\n" <<
+       "Mark best region time:\t" << mapqTime / 1000000 << "\n" <<
        "SAM output time :\t" << sam_time / 1000000 << "\n" <<
        std::endl << endl;
 
@@ -376,15 +375,15 @@ void AccAlign::mark_for_extension(Read &read, char S, Region &cregion) {
   read.best_region = cregion;
 }
 
-void AccAlign::pigeonhole_query(char *Q,
-                                size_t rlen,
-                                vector<Region> &candidate_regions,
-                                char S,
-                                int err_threshold,
-                                unsigned kmer_step,
-                                unsigned max_occ,
-                                unsigned &best,
-                                unsigned ori_slide) {
+void AccAlign::pigeonhole_query_topcov(char *Q,
+                                       size_t rlen,
+                                       vector<Region> &candidate_regions,
+                                       char S,
+                                       int err_threshold,
+                                       unsigned kmer_step,
+                                       unsigned max_occ,
+                                       unsigned &best,
+                                       unsigned ori_slide) {
   int max_cov = 0;
   unsigned nkmers = (rlen - ori_slide - kmer_len) / kmer_step + 1;
   size_t ntotal_hits = 0;
@@ -560,12 +559,12 @@ void AccAlign::pigeonhole_query_sort(char *Q,
                                      size_t rlen,
                                      vector<Region> &candidate_regions,
                                      char S,
-                                     int err_threshold,
+                                     unsigned err_threshold,
                                      unsigned kmer_step,
                                      unsigned max_occ,
                                      unsigned &best,
                                      unsigned ori_slide) {
-  int max_cov = 0;
+  unsigned max_cov = 0;
   unsigned nkmers = (rlen - ori_slide - kmer_len) / kmer_step + 1;
   size_t ntotal_hits = 0;
   size_t b[nkmers], e[nkmers];
@@ -645,7 +644,7 @@ void AccAlign::pigeonhole_query_sort(char *Q,
         Region r;
         r.cov = last_cov;
         r.rs = last_pos;
-        for (int i = nprocessed - last_cov; i < nprocessed; i++)
+        for (unsigned i = nprocessed - last_cov; i < nprocessed; i++)
           r.matched_intervals.push_back(regions[i].qs);
         r.qs = r.matched_intervals[0]; //the first match seed, so left extension could be accurate
         r.qe = r.qs + kmer_len;
@@ -670,7 +669,7 @@ void AccAlign::pigeonhole_query_sort(char *Q,
     Region r;
     r.cov = last_cov;
     r.rs = last_pos;
-    for (int i = nprocessed - last_cov; i < nprocessed; i++)
+    for (unsigned i = nprocessed - last_cov; i < nprocessed; i++)
       r.matched_intervals.push_back(regions[i].qs);
     r.qs = r.matched_intervals[0]; //the first match seed, so left extension could be accurate
     r.qe = r.qs + kmer_len;
@@ -704,14 +703,23 @@ void AccAlign::pghole_wrapper(Read &R,
 //  while (kmer_step > 0 && !nfregions && !nrregions) {
   while (ori_slide < slide && !nfregions && !nrregions) {
 
-    pigeonhole_query_mates(R.fwd, rlen, fcandidate_regions, '+', fbest, ori_slide, 2, kmer_step, MAX_OCC, high_freq);
-    pigeonhole_query_mates(R.rev, rlen, rcandidate_regions, '-', rbest, ori_slide, 2, kmer_step, MAX_OCC, high_freq);
+    unsigned nkmers = (rlen - ori_slide - kmer_len) / kmer_step + 1;
+
+    if (nkmers < 4){
+      //nkmer 3, 2, 1, top 2 cov of cov >=2, is 3, 2, is as same as cov>=2
+      // as cov2 is faster than top2, use cov2
+      pigeonhole_query(R.fwd, rlen, fcandidate_regions, '+', fbest, ori_slide, 2, kmer_step, MAX_OCC, high_freq);
+      pigeonhole_query(R.rev, rlen, rcandidate_regions, '-', rbest, ori_slide, 2, kmer_step, MAX_OCC, high_freq);
+    } else {
+      pigeonhole_query_topcov(R.fwd, rlen, fcandidate_regions, '+', 2, kmer_step, MAX_OCC, fbest, ori_slide);
+      pigeonhole_query_topcov(R.rev, rlen, rcandidate_regions, '-', 2, kmer_step, MAX_OCC, rbest, ori_slide);
+    }
     nfregions = fcandidate_regions.size();
     nrregions = rcandidate_regions.size();
 
     if (!nfregions && !nrregions) {
-      pigeonhole_query_mates(R.fwd, rlen, fcandidate_regions, '+', fbest, ori_slide, 1, kmer_step, MAX_OCC, high_freq);
-      pigeonhole_query_mates(R.rev, rlen, rcandidate_regions, '-', rbest, ori_slide, 1, kmer_step, MAX_OCC, high_freq);
+      pigeonhole_query(R.fwd, rlen, fcandidate_regions, '+', fbest, ori_slide, 1, kmer_step, MAX_OCC, high_freq);
+      pigeonhole_query(R.rev, rlen, rcandidate_regions, '-', rbest, ori_slide, 1, kmer_step, MAX_OCC, high_freq);
       nfregions = fcandidate_regions.size();
       nrregions = rcandidate_regions.size();
     }
@@ -723,16 +731,16 @@ void AccAlign::pghole_wrapper(Read &R,
 
 }
 
-void AccAlign::pigeonhole_query_mates(char *Q,
-                                      size_t rlen,
-                                      vector<Region> &candidate_regions,
-                                      char S,
-                                      unsigned &best,
-                                      unsigned ori_slide,
-                                      int err_threshold,
-                                      unsigned kmer_step,
-                                      unsigned max_occ,
-                                      bool &high_freq) {
+void AccAlign::pigeonhole_query(char *Q,
+                                size_t rlen,
+                                vector<Region> &candidate_regions,
+                                char S,
+                                unsigned &best,
+                                unsigned ori_slide,
+                                int err_threshold,
+                                unsigned kmer_step,
+                                unsigned max_occ,
+                                bool &high_freq) {
   int max_cov = 0;
   unsigned nkmers = (rlen - ori_slide - kmer_len) / kmer_step + 1;
   size_t ntotal_hits = 0;
@@ -882,15 +890,15 @@ void AccAlign::pghole_wrapper_mates(Read &R,
   unsigned rlen = strlen(R.seq);
 
   // MAX_OCC, cov >= 2
-  pigeonhole_query_mates(R.fwd, rlen, fcandidate_regions, '+', fbest, ori_slide, 2, kmer_step, max_occ, high_freq);
-  pigeonhole_query_mates(R.rev, rlen, rcandidate_regions, '-', rbest, ori_slide, 2, kmer_step, max_occ, high_freq);
+  pigeonhole_query(R.fwd, rlen, fcandidate_regions, '+', fbest, ori_slide, 2, kmer_step, max_occ, high_freq);
+  pigeonhole_query(R.rev, rlen, rcandidate_regions, '-', rbest, ori_slide, 2, kmer_step, max_occ, high_freq);
   R.kmer_step = kmer_step;
   unsigned nfregions = fcandidate_regions.size();
   unsigned nrregions = rcandidate_regions.size();
 
   if (!nfregions && !nrregions) {
-    pigeonhole_query_mates(R.fwd, rlen, fcandidate_regions, '+', fbest, ori_slide, 1, kmer_step, max_occ, high_freq);
-    pigeonhole_query_mates(R.rev, rlen, rcandidate_regions, '-', rbest, ori_slide, 1, kmer_step, max_occ, high_freq);
+    pigeonhole_query(R.fwd, rlen, fcandidate_regions, '+', fbest, ori_slide, 1, kmer_step, max_occ, high_freq);
+    pigeonhole_query(R.rev, rlen, rcandidate_regions, '-', rbest, ori_slide, 1, kmer_step, max_occ, high_freq);
   }
 }
 
@@ -1095,11 +1103,7 @@ void AccAlign::map_read(Read &R) {
     seeding_time += elapsed.count();
 
     unsigned fnext, rnext;
-    start = std::chrono::system_clock::now();
     embed_wrapper(R, false, fcandidate_regions, rcandidate_regions, fbest, fnext, rbest, rnext);
-    end = std::chrono::system_clock::now();
-    elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
-    embedding_time += elapsed.count();
 
     start = std::chrono::system_clock::now();
 
@@ -1219,7 +1223,7 @@ void AccAlign::map_paired_read(Read &mate1, Read &mate2) {
   bool has_f1r2 = false, has_r1f2 = false;
 
   // lookup candidates
-  int min_rlen = strlen(mate1.seq) < strlen(mate2.seq) ? strlen(mate1.seq) : strlen(mate2.seq);
+  unsigned min_rlen = strlen(mate1.seq) < strlen(mate2.seq) ? strlen(mate1.seq) : strlen(mate2.seq);
   if (min_rlen < kmer_len) {
     mate1.strand = '*';
     mate2.strand = '*';
@@ -1272,7 +1276,6 @@ void AccAlign::map_paired_read(Read &mate1, Read &mate2) {
   // now apply embedding filter on filtered regions.
   // But before, rearrange so that regions with high coverage are at the top
   //no need to swap, just embed the best and next first..
-  start = std::chrono::system_clock::now();
   int best_f1r2 = INT_MAX, next_f1r2 = INT_MAX, best_r1f2 = INT_MAX, next_r1f2 = INT_MAX;
   if (has_f1r2)
     embed_wrapper_pair(mate1, mate2, region_f1, region_r2, flag_f1, flag_r2,
@@ -1286,6 +1289,7 @@ void AccAlign::map_paired_read(Read &mate1, Read &mate2) {
   delete[] flag_f2;
   delete[] flag_r2;
 
+  start = std::chrono::system_clock::now();
   int secmin_dist;
   if (best_f1r2 <= best_r1f2) {
     mark_for_extension(mate1, '+', region_f1[best_f1]);
@@ -1893,7 +1897,7 @@ void AccAlign::score_region(Read &r, char *qseq, Region &region,
     // matched seed
     uint32_t cigar_m[] = {kmer_len << 4};
     append_cigar(extension, 1, cigar_m);
-    for (int j = 0; j < kmer_len; ++j) {
+    for (unsigned j = 0; j < kmer_len; ++j) {
       extension->dp_score += qseq[qs + j] == ref.c_str()[raw_rs + qs + j] ? SC_MCH : -SC_MIS;
     }
 
@@ -1919,7 +1923,7 @@ void AccAlign::score_region(Read &r, char *qseq, Region &region,
     if (beginclip)
       cigar_string << beginclip << 'S';
 
-    int i = 0;
+    unsigned i = 0;
     int edit_mismatch = 0;
     unsigned ref_pos = region.rs, read_pos = beginclip;
     while (i < extension->n_cigar) {
@@ -2183,7 +2187,6 @@ AccAlign::AccAlign(Reference &r) :
   input_io_time = parse_time = 0;
   seeding_time = hit_count_time = 0;
   vpair_build_time = 0;
-  embedding_time = 0;
   sw_time = sam_time = sam_pre_time = sam_out_time = 0;
   vpair_sort_count = 0;
 

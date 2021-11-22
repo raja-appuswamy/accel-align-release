@@ -9,11 +9,12 @@ int Embedding::cgk2_unmatched(const char *r, const char *ref,
                               const unsigned kmer_step,
                               const int threshold,
                               const int strid) {
-  int elen = efactor * rlen, nmismatch = 0;
+  unsigned elen = efactor * rlen;
+  int nmismatch = 0;
   char embeddedQ[elen];
 
   // embed ref: cadidate pos
-  int i = 0, m_idx = 0, j = 0;
+  unsigned i = 0, m_idx = 0, j = 0;
   while (i < rlen) {
     if (m_idx < mch.size() && i == mch[m_idx]) {
       i += kmer_step;
