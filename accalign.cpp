@@ -1311,6 +1311,114 @@ void AccAlign::map_paired_read(Read &mate1, Read &mate2) {
   mapqTime += elapsed.count();
 }
 
+void AccAlign::print_paired_sam(Read &R, Read &R2) {
+  auto start = std::chrono::system_clock::now();
+
+  stringstream ss;
+  char strand1 = R.strand;
+  char strand2 = R2.strand;
+
+  //mate 1
+  string rname = R.name;
+  ss << rname.substr(0, rname.find_last_of("/")) << '\t';
+
+  uint16_t flag = 0x1;
+  if (strand1 == '*')
+    flag |= 0x4;
+  if (strand2 == '*')
+    flag |= 0x8;
+  if (!(flag & 0x4) && !(flag & 0x8))
+    flag |= 0x2;
+  if (strand1 == '-')
+    flag |= 0x10;
+  if (strand2 == '-')
+    flag |= 0x20;
+  flag |= 0x40;
+  ss << flag;
+
+  ss << '\t' << (strand1 == '*' ? "*" : name[R.tid]);
+  ss << '\t' << (strand1 == '*' ? 0 : R.pos);
+  ss << '\t' << (strand1 == '*' ? 0 : (int) R.mapq);
+  ss << '\t' << (strand1 == '*' ? "*" : R.cigar) << '\t';
+
+  if (R.strand == '*' || R2.strand == '*')
+    ss << '*';
+  else
+    ss << (name[R.tid] == name[R2.tid] ? "=" : name[R2.tid].c_str());
+
+  ss << '\t' << (strand2 == '*' ? 0 : R2.pos);
+
+  int isize = 0;
+  if (R.strand != '*' && R2.strand != '*') {
+    if (R.pos > R2.pos)
+      isize = R2.pos - R.pos - strlen(R.seq);
+    else
+      isize = R2.pos - R.pos + strlen(R2.seq);
+  }
+  ss << '\t' << isize;
+
+  if (strand1 == '-') {
+    std::reverse(R.qua, R.qua + strlen(R.qua));
+    ss << '\t' << R.rev_str;
+  } else {
+    ss << '\t' << R.seq;
+  }
+  ss << '\t' << R.qua << "\tNM:i:" << R.nm << "\tAS:i:" << R.as << endl;
+
+
+  //for mate2
+  string rname2 = R2.name;
+  ss << rname2.substr(0, rname2.find_last_of("/")) << '\t';
+
+  flag = 0x1;
+  if (strand2 == '*')
+    flag |= 0x4;
+  if (strand1 == '*')
+    flag |= 0x8;
+  if (!(flag & 0x4) && !(flag & 0x8))
+    flag |= 0x2;
+  if (strand2 == '-')
+    flag |= 0x10;
+  if (strand1 == '-')
+    flag |= 0x20;
+  flag |= 0x80;
+
+  ss << flag;
+  ss << '\t' << (strand2 == '*' ? "*" : name[R2.tid]);
+  ss << '\t' << (strand2 == '*' ? 0 : R2.pos);
+  ss << '\t' << (strand2 == '*' ? 0 : (int) R2.mapq);
+  ss << '\t' << (strand2 == '*' ? "*" : R2.cigar) << '\t';
+
+  if (R.strand == '*' || R2.strand == '*')
+    ss << '*';
+  else
+    ss << (name[R.tid] == name[R2.tid] ? "=" : name[R.tid].c_str());
+
+  ss << '\t' << (strand2 == '*' ? 0 : R.pos);
+  ss << '\t' << -isize;
+  if (strand2 == '-') {
+    std::reverse(R2.qua, R2.qua + strlen(R2.qua));
+    ss << '\t' << R2.rev_str;
+  } else {
+    ss << '\t' << R2.seq;
+  }
+  ss << '\t' << R2.qua << "\tNM:i:" << R2.nm << "\tAS:i:" << R2.as << endl;
+
+  {
+    std::lock_guard<std::mutex> guard(sam_mutex);
+    if (sam_name.length()) {
+      sam_stream << ss.str();
+      sam_stream.flush();
+    } else {
+      cout << ss.str();
+    }
+  }
+
+  auto end = std::chrono::system_clock::now();
+  auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+  sam_pre_time += elapsed.count();
+}
+
 void AccAlign::snprintf_pair_sam(Read &R, string *s, Read &R2, string *s2) {
   auto start = std::chrono::system_clock::now();
 
@@ -1353,43 +1461,17 @@ void AccAlign::snprintf_pair_sam(Read &R, string *s, Read &R2, string *s2) {
   if (R.strand == '+' && R2.strand != '*') {
     size += strlen(R.name) + name[R.tid].length() + name[R2.tid].length() + 2 * strlen(R.seq);
     char buf[size];
-    snprintf(buf,
-             size,
-             format.c_str(),
-             nn.c_str(),
-             flag,
-             name[R.tid].c_str(),
-             R.pos,
-             (int) R.mapq,
-             R.cigar,
-             name[R.tid] == name[R2.tid] ? "=" : name[R2.tid].c_str(),
-             R2.pos,
-             isize,
-             R.seq,
-             R.qua,
-             R.nm,
-             R.as);
+    snprintf(buf, size, format.c_str(), nn.c_str(), flag, name[R.tid].c_str(), R.pos,
+             (int) R.mapq, R.cigar, name[R.tid] == name[R2.tid] ? "=" : name[R2.tid].c_str(),
+             R2.pos, isize, R.seq, R.qua, R.nm, R.as);
     *s = buf;
   } else if (R.strand == '-' && R2.strand != '*') {
     size += strlen(R.name) + name[R.tid].length() + name[R2.tid].length() + 2 * strlen(R.seq);
     char buf[size];
     std::reverse(R.qua, R.qua + strlen(R.qua));
-    snprintf(buf,
-             size,
-             format.c_str(),
-             nn.c_str(),
-             flag,
-             name[R.tid].c_str(),
-             R.pos,
-             (int) R.mapq,
-             R.cigar,
-             name[R.tid] == name[R2.tid] ? "=" : name[R2.tid].c_str(),
-             R2.pos,
-             isize,
-             R.rev_str,
-             R.qua,
-             R.nm,
-             R.as);
+    snprintf(buf, size, format.c_str(), nn.c_str(), flag, name[R.tid].c_str(), R.pos,
+             (int) R.mapq, R.cigar, name[R.tid] == name[R2.tid] ? "=" : name[R2.tid].c_str(),
+             R2.pos, isize, R.rev_str, R.qua, R.nm, R.as);
     *s = buf;
   } else if (R.strand == '+' && R2.strand == '*') {
     size += strlen(R.name) + name[R.tid].length() + 2 * strlen(R.seq);
@@ -1442,43 +1524,17 @@ void AccAlign::snprintf_pair_sam(Read &R, string *s, Read &R2, string *s2) {
   if (R2.strand == '+' && R.strand != '*') {
     size += strlen(R2.name) + name[R2.tid].length() + name[R.tid].length() + 2 * strlen(R2.seq);
     char buf[size];
-    snprintf(buf,
-             size,
-             format.c_str(),
-             nn2.c_str(),
-             flag,
-             name[R2.tid].c_str(),
-             R2.pos,
-             (int) R2.mapq,
-             R2.cigar,
-             name[R.tid] == name[R2.tid] ? "=" : name[R.tid].c_str(),
-             R.pos,
-             -isize,
-             R2.seq,
-             R2.qua,
-             R2.nm,
-             R2.as);
+    snprintf(buf, size, format.c_str(), nn2.c_str(), flag, name[R2.tid].c_str(), R2.pos,
+             (int) R2.mapq, R2.cigar, name[R.tid] == name[R2.tid] ? "=" : name[R.tid].c_str(),
+             R.pos, -isize, R2.seq, R2.qua, R2.nm, R2.as);
     *s2 = buf;
   } else if (R2.strand == '-' && R.strand != '*') {
     size += strlen(R2.name) + name[R2.tid].length() + name[R.tid].length() + 2 * strlen(R2.seq);
     char buf[size];
     std::reverse(R2.qua, R2.qua + strlen(R2.qua));
-    snprintf(buf,
-             size,
-             format.c_str(),
-             nn2.c_str(),
-             flag,
-             name[R2.tid].c_str(),
-             R2.pos,
-             (int) R2.mapq,
-             R2.cigar,
-             name[R.tid] == name[R2.tid] ? "=" : name[R.tid].c_str(),
-             R.pos,
-             -isize,
-             R2.rev_str,
-             R2.qua,
-             R2.nm,
-             R2.as);
+    snprintf(buf, size, format.c_str(), nn2.c_str(), flag, name[R2.tid].c_str(), R2.pos,
+             (int) R2.mapq, R2.cigar, name[R.tid] == name[R2.tid] ? "=" : name[R.tid].c_str(),
+             R.pos, -isize, R2.rev_str, R2.qua, R2.nm, R2.as);
     *s2 = buf;
   } else if (R2.strand == '+' && R.strand == '*') {
     size += strlen(R2.name) + name[R2.tid].length() + 2 * strlen(R2.seq);
@@ -1509,6 +1565,46 @@ void AccAlign::snprintf_pair_sam(Read &R, string *s, Read &R2, string *s2) {
              nn2.c_str(), flag, "*", 0, 0, "*", "*", 0,
              -isize, R2.seq, R2.qua, R2.nm, R2.as);
     *s2 = buf;
+  }
+
+  auto end = std::chrono::system_clock::now();
+  auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+  sam_pre_time += elapsed.count();
+}
+
+void AccAlign::print_sam(Read &R) {
+  auto start = std::chrono::system_clock::now();
+
+  stringstream ss;
+  string rname = R.name;
+  ss << rname.substr(0, rname.find_last_of("/")) << '\t';
+
+  if (R.strand == '*') {
+    ss << "4\t*\t0\t255\t*\t*\t0\t0\t";
+  } else {
+    ss << (R.strand == '+' ? 0 : 16) << "\t" <<
+       name[R.tid] << "\t" <<
+       R.pos << "\t" <<
+       (int) R.mapq << "\t" <<
+       R.cigar << "\t*\t0\t0\t";
+  }
+
+  if (R.strand == '-') {
+    std::reverse(R.qua, R.qua + strlen(R.qua));
+    ss << '\t' << R.rev_str;
+  } else {
+    ss << '\t' << R.seq;
+  }
+  ss << '\t' << R.qua << "\tNM:i:" << R.nm << "\tAS:i:" << R.as << endl;
+
+  {
+    std::lock_guard<std::mutex> guard(sam_mutex);
+    if (sam_name.length()) {
+      sam_stream << ss.str();
+      sam_stream.flush();
+    } else {
+      cout << ss.str();
+    }
   }
 
   auto end = std::chrono::system_clock::now();
@@ -1939,6 +2035,10 @@ void AccAlign::save_region(Read &R, size_t rlen, Region &region,
 void AccAlign::align_read(Read &R) {
   auto start = std::chrono::system_clock::now();
 
+  if (R.strand == '*') {
+    return;
+  }
+
   Region region = R.best_region;
   char *s = R.strand == '+' ? R.fwd : R.rev;
 
@@ -2139,6 +2239,161 @@ AccAlign::~AccAlign() {
   delete embedding;
 }
 
+struct tbb_map {
+  AccAlign *accalign;
+
+ public:
+  tbb_map(AccAlign *obj) : accalign(obj) {}
+
+  Read *operator()(Read *r) {
+    accalign->map_read(*r);
+    return r;
+  }
+
+  ReadPair operator()(ReadPair p) {
+    Read *mate1 = std::get<0>(p);
+    Read *mate2 = std::get<1>(p);
+    accalign->map_paired_read(*mate1, *mate2);
+
+    return p;
+  }
+};
+
+struct tbb_align {
+  AccAlign *accalign;
+
+ public:
+  tbb_align(AccAlign *obj) : accalign(obj) {}
+
+  Read *operator()(Read *r) {
+    accalign->align_read(*r);
+    return r;
+  }
+
+  ReadPair operator()(ReadPair p) {
+    Read *mate1 = std::get<0>(p);
+    Read *mate2 = std::get<1>(p);
+    accalign->align_read(*mate1);
+    accalign->align_read(*mate2);
+
+    return p;
+  }
+};
+
+struct tbb_score {
+  AccAlign *accalign;
+
+ public:
+  tbb_score(AccAlign *obj) : accalign(obj) {}
+
+  continue_msg operator()(Read *r) {
+    accalign->print_sam(*r);
+    delete r;
+    return continue_msg();
+  }
+
+  continue_msg operator()(ReadPair p) {
+    Read *mate1 = std::get<0>(p);
+    Read *mate2 = std::get<1>(p);
+    accalign->print_paired_sam(*mate1, *mate2);
+    delete mate1;
+    delete mate2;
+
+    return continue_msg();
+  }
+};
+
+bool AccAlign::tbb_fastq(const char *F1, const char *F2) {
+  gzFile in1 = gzopen(F1, "rt");
+  if (in1 == Z_NULL)
+    return false;
+
+  gzFile in2 = Z_NULL;
+  char is_paired = false;
+  if (strlen(F2) > 0) {
+    is_paired = true;
+    in2 = gzopen(F2, "rt");
+    if (in2 == Z_NULL)
+      return false;
+  }
+
+  //struct timeval start, end;
+
+  cerr << "Reading fastq file " << F1 << ", " << F2 << "\n";
+
+  // replace this broadcast node with source node
+  if (!is_paired) {
+    graph g;
+
+    source_node < Read * > input_node(g, [&](Read *&r) -> bool {
+      if (gzeof(in1) || (gzgetc(in1) == EOF))
+        return false;
+
+      r = new Read;
+      in1 >> *r;
+      if (!strlen(r->seq))
+        return false;
+
+      return true;
+    }, false);
+
+    int max_objects = 10000000;
+    limiter_node < Read * > lnode(g, max_objects);
+    function_node < Read * , Read * > map_node(g, unlimited, tbb_map(this));
+    function_node < Read * , Read * > align_node(g, unlimited, tbb_align(this));
+    function_node < Read * , continue_msg > score_node(g, 1, tbb_score(this));
+
+    make_edge(score_node, lnode.decrement);
+    make_edge(align_node, score_node);
+    make_edge(map_node, align_node);
+    make_edge(lnode, map_node);
+    make_edge(input_node, map_node);
+    input_node.activate();
+    g.wait_for_all();
+  } else {
+    graph g;
+    source_node<ReadPair> input_node(g, [&](ReadPair &rp) -> bool {
+      bool end1 = gzgetc(in1) == EOF;
+      bool end2 = gzgetc(in2) == EOF;
+      if (gzeof(in1) || end1 || end2)
+        return false;
+
+      Read *r = new Read;
+      in1 >> *r;
+      if (!strlen(r->seq))
+        return false;
+      get<0>(rp) = r;
+
+      Read *r2 = new Read;
+      in2 >> *r2;
+      if (!strlen(r2->seq))
+        return false;
+      get<1>(rp) = r2;
+
+      return true;
+    }, false);
+
+    int max_objects = 1000000;
+    limiter_node<ReadPair> lnode(g, max_objects);
+    function_node<ReadPair, ReadPair> map_node(g, unlimited, tbb_map(this));
+    function_node<ReadPair, ReadPair> align_node(g, unlimited, tbb_align(this));
+    function_node<ReadPair, continue_msg> score_node(g, 1, tbb_score(this));
+
+    make_edge(score_node, lnode.decrement);
+    make_edge(align_node, score_node);
+    make_edge(map_node, align_node);
+    make_edge(lnode, map_node);
+    make_edge(input_node, map_node);
+    input_node.activate();
+    g.wait_for_all();
+  }
+
+  gzclose(in1);
+  gzclose(in2);
+
+  return true;
+}
+
 int main(int ac, char **av) {
   if (ac < 3) {
     print_usage();
@@ -2218,8 +2473,10 @@ int main(int ac, char **av) {
 
   if (opn == ac - 1) {
     f.fastq(av[opn], "\0", false);
+//    f.tbb_fastq(av[opn], "\0");
   } else if (opn == ac - 2) {
-    f.fastq(av[opn], av[opn + 1], false);
+//    f.fastq(av[opn], av[opn + 1], false);
+    f.tbb_fastq(av[opn], av[opn + 1]);
   } else {
     print_usage();
     return 0;

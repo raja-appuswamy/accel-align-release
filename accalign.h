@@ -15,6 +15,7 @@ class AccAlign {
   // output fields
   std::string sam_name;
   std::ofstream sam_stream;
+  std::mutex sam_mutex;
 
   void cpu_root_fn(tbb::concurrent_bounded_queue<ReadCnt> *inputQ,
                    tbb::concurrent_bounded_queue<ReadCnt> *outputQ);
@@ -85,6 +86,9 @@ class AccAlign {
   void wfa_align_read(Read &R);
   void rectify_start_pos(char *strand, Region &region, unsigned rlen);
   int get_mapq(int as, int best, int secbest, int rlen, int clen, int cov);
+  void print_paired_sam(Read &R, Read &R2);
+  void print_sam(Read &R);
+  bool tbb_fastq(const char *F1, const char *F2);
   AccAlign(Reference &r);
   ~AccAlign();
 };
