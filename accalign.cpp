@@ -1845,22 +1845,6 @@ void AccAlign::score_region(Read &r, char *qseq, Region &region,
     region.score = qlen * SC_MCH;
     r.mapq = 60;
   } else {
-    vector<uint32_t> start_pos = region.matched_intervals;
-    vector<Interval> match;
-    match.reserve(start_pos.size());
-
-    int i = 0;
-    while (i < start_pos.size()) {
-      uint32_t start = start_pos[i];
-      uint32_t end = start + kmer_len;
-
-      ++i;
-      while (i < start_pos.size() && start_pos[i] <= end) {
-        end = start_pos[i] + kmer_len;
-        i++;
-      }
-      match.push_back(Interval{start, end});
-    }
 
     Extension *extension = nullptr;
     uint32_t raw_rs = region.rs;
@@ -1868,8 +1852,8 @@ void AccAlign::score_region(Read &r, char *qseq, Region &region,
     uint32_t qs, qe, qs0, qe0, rs, re, rs0, re0, l;
     uint32_t beginclip = 0, endclip = 0;
     qs = region.qs;
-    assert(region.qs == match[0].s);
-    qe = match[match.size() - 1].e;
+    assert(region.qs == region.matched_intervals[0]);
+    qe = qs + kmer_len;
     rs = region.rs + qs;
     re = region.rs + qe;
     l = qs;
@@ -1905,38 +1889,12 @@ void AccAlign::score_region(Read &r, char *qseq, Region &region,
       free(ez_l.cigar);
     }
 
-    for (int i = 0; i < match.size(); i++) {
-      uint32_t start = match[i].s;
-      uint32_t end = match[i].e;
-      uint32_t len = end - start;
-      assert(len <= qlen);
-      assert(len >= kmer_len);
 
-      // matched seed
-      uint32_t cigar_m[] = {len << 4};
-      append_cigar(extension, 1, cigar_m);
-      for (int j = 0; j < len; ++j) {
-        extension->dp_score += qseq[start + j] == ref.c_str()[raw_rs + start + j] ? SC_MCH : -SC_MIS;
-      }
-
-      // mismatch seed
-      if (i + 1 < match.size()) {
-        uint32_t mis_s = match[i].e;
-        uint32_t mis_e = match[i + 1].s;
-        uint32_t mis_len = mis_e - mis_s;
-        assert(mis_len <= qlen);
-
-        const uint8_t *_tseq = reinterpret_cast<const uint8_t *>(ref.c_str() + raw_rs + mis_s);
-        const uint8_t *_qseq = reinterpret_cast<const uint8_t *>(qseq + mis_s);
-        ksw_extz_t ez;
-        memset(&ez, 0, sizeof(ksw_extz_t));
-        ksw_extz2_sse(0, mis_len, _qseq, mis_len, _tseq, 5, mat, GAPO, GAPE, -1, -1, 0, 0, &ez);
-        if (ez.n_cigar > 0) {
-          append_cigar(extension, ez.n_cigar, ez.cigar);
-          extension->dp_score += ez.score; //max score reaching both ends
-        }
-        free(ez.cigar);
-      }
+    // matched seed
+    uint32_t cigar_m[] = {kmer_len << 4};
+    append_cigar(extension, 1, cigar_m);
+    for (int j = 0; j < kmer_len; ++j) {
+      extension->dp_score += qseq[qs + j] == ref.c_str()[raw_rs + qs + j] ? SC_MCH : -SC_MIS;
     }
 
     // right extension
@@ -1961,7 +1919,7 @@ void AccAlign::score_region(Read &r, char *qseq, Region &region,
     if (beginclip)
       cigar_string << beginclip << 'S';
 
-    i = 0;
+    int i = 0;
     int edit_mismatch = 0;
     unsigned ref_pos = region.rs, read_pos = beginclip;
     while (i < extension->n_cigar) {
