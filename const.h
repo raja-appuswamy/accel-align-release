@@ -19,16 +19,13 @@
 
 //Embedding related
 #define EMBED_PAD 4
-#define NUM_STR 1 //r
+#define NUM_STR 3 //r
 #define NUM_CHAR 5 // num of chars in strings
 #define MAX_ELEN 1500 //the maximum length of random string
 #define RBITS_PER_STRING (MAX_ELEN * NUM_CHAR)
 #define TOTAL_RBITS (RBITS_PER_STRING * NUM_STR)
 #define BITPOS(STR_ID, OFFSET, CHAR_ID) (STR_ID * RBITS_PER_STRING +\
         OFFSET * NUM_CHAR + CHAR_ID)
-
-// mapq
-#define MIS_PENALTY -1
 
 #define MAX_LEN 512
 
@@ -43,3 +40,5 @@
 #ifndef kroundup32
 #define kroundup32(x) (--(x), (x)|=(x)>>1, (x)|=(x)>>2, (x)|=(x)>>4, (x)|=(x)>>8, (x)|=(x)>>16, ++(x))
 #endif
+
+#define MAX_OCC 1000

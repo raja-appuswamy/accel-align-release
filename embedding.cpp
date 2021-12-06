@@ -3,6 +3,75 @@
 #define EMBED_PAD 4
 #define CGK2_EMBED 1
 
+int Embedding::cgk2_unmatched(const char *r, const char *ref,
+                              const vector<uint32_t> &mch,
+                              const unsigned rlen,
+                              const unsigned kmer_step,
+                              const int threshold,
+                              const int strid) {
+  unsigned elen = efactor * rlen;
+  int nmismatch = 0;
+  char embeddedQ[elen];
+
+  // embed ref: cadidate pos
+  unsigned i = 0, m_idx = 0, j = 0;
+  while (i < rlen) {
+    if (m_idx < mch.size() && i == mch[m_idx]) {
+      i += kmer_step;
+      m_idx++;
+    } else {
+      uint8_t s = ref[i];
+      char bit = hash_eb[BITPOS(strid, j, s)];
+      if (!bit) {
+        embeddedQ[j] = s;
+        j++;
+      } else {
+        embeddedQ[j + 1] = embeddedQ[j] = s;
+        j += 2;
+      }
+      i++;
+    }
+  }
+
+  //append the rest with EMBED_PAD
+  //because the embedded candidate may be longer than j and need to count nmismatch with embeddedQ[j]
+  for (; j < elen; j++) {
+    embeddedQ[j] = EMBED_PAD;
+  }
+
+  //reset idx, embed read and cal mismatch
+  i = j = m_idx = 0;
+  while (i < rlen) {
+    if (m_idx < mch.size() && i == mch[m_idx]) {
+      i += kmer_step;
+      m_idx++;
+    } else {
+      uint8_t s = r[i];
+      char bit = hash_eb[BITPOS(strid, j, s)];
+      if (!bit) {
+        nmismatch += (embeddedQ[j] == s ? 0 : 1);
+        j++;
+      } else {
+        nmismatch += (embeddedQ[j] == s ? 0 : 1);
+        nmismatch += (embeddedQ[j + 1] == s ? 0 : 1);
+        j += 2;
+      }
+      if (nmismatch > threshold) {
+        nmismatch = elen;
+        goto end;
+      }
+      i++;
+    }
+  }
+
+  for (; j < elen; j++)
+    nmismatch += (embeddedQ[j] == EMBED_PAD ? 0 : 1);
+
+  assert(j == elen);
+  end:
+  return nmismatch;
+}
+
 void Embedding::cgk2_embedQ(const char *oridata, unsigned rlen, int strid, char *embeddedQ) {
   int j = 0;
   int elen = efactor * rlen;
@@ -126,65 +195,55 @@ int Embedding::embedstr(const char **oridata, unsigned rlen, int threshold, int 
 #endif
 }
 
-void Embedding::embed_two_pairs(vector<Region> &candidate_regions_f1, vector<Region> &candidate_regions_r2,
-                                unsigned rlen, int *thresholds, char embeddedQ_f1[], char embeddedQ_r2[],
-                                const char **candidate_refs_f1, const char **candidate_refs_r2,
-                                unsigned nregions_f1, unsigned nregions_r2, bool flag_f1[], bool flag_r2[],
-                                unsigned best_f1, unsigned next_f1, unsigned best_r2, unsigned next_r2) {
+void Embedding::embed_unmatch_iter(vector<Region> &candidate_regions,
+                                   const char *ptr_ref,
+                                   const char *r,
+                                   const unsigned rlen,
+                                   const unsigned kmer_step,
+                                   int &best_threshold,
+                                   int &next_threshold,
+                                   unsigned &best_idx, unsigned &next_idx) {
 
-  if (best_f1 == nregions_f1 || best_r2 == nregions_r2) // not equal to the init value
-    return;
-
-  int elen = rlen * efactor;
-
-  // embed first pair, threshold is elen (embed whole read)
-  int nmismatch_f1 = embedstr(candidate_refs_f1, rlen, elen, best_f1 + 1, 0, embeddedQ_f1);
-  candidate_regions_f1[best_f1].embed_dist = nmismatch_f1;
-  int nmismatch_r2 = embedstr(candidate_refs_r2, rlen, elen, best_r2 + 1, 0, embeddedQ_r2);
-  candidate_regions_r2[best_r2].embed_dist = nmismatch_r2;
-  thresholds[0] = nmismatch_f1 + nmismatch_r2;
-  // set flag to 0, no need to embed again later
-  flag_f1[best_f1] = 0;
-  flag_r2[best_r2] = 0;
-
-  // embed the second pair
-  if (next_f1 != nregions_f1 && next_r2 != nregions_r2) { // not equal to the init value
-    int nmismatch;
-    if (next_f1 == best_f1) {
-      assert(next_r2 != best_r2);
-      nmismatch = embedstr(candidate_refs_r2, rlen, elen, next_r2 + 1, 0, embeddedQ_r2);
-      candidate_regions_r2[next_r2].embed_dist = nmismatch;
-      thresholds[1] = nmismatch_f1 + nmismatch;
-    } else if (next_r2 == best_r2) {
-      assert(next_f1 != best_f1);
-      nmismatch = embedstr(candidate_refs_f1, rlen, elen, next_f1 + 1, 0, embeddedQ_f1);
-      candidate_regions_f1[next_f1].embed_dist = nmismatch;
-      thresholds[1] = nmismatch_r2 + nmismatch;
-    } else {
-      nmismatch = embedstr(candidate_refs_f1, rlen, elen, next_f1 + 1, 0, embeddedQ_f1);
-      candidate_regions_f1[next_f1].embed_dist = nmismatch;
-      thresholds[1] = nmismatch;
-      nmismatch = embedstr(candidate_refs_r2, rlen, elen, next_r2 + 1, 0, embeddedQ_r2);
-      candidate_regions_r2[next_r2].embed_dist = nmismatch;
-      thresholds[1] += nmismatch;
-    }
-    flag_f1[next_f1] = 0;
-    flag_r2[next_r2] = 0;
-  }
-
-}
-
-void Embedding::embeddata_pair(vector<Region> &candidate_regions, char embeddedQ[],
-                               const char **candidate_refs, unsigned ncandidates, bool flag[],
-                               unsigned rlen, int threshold) {
   auto start = std::chrono::system_clock::now();
 
-  int step = 1;
+  int elen = rlen * efactor, nmismatch;
 
-  for (unsigned i = 0; i < ncandidates; i += step) {
-    if (!flag[i])
-      continue;
-    candidate_regions[i].embed_dist = embedstr(candidate_refs, rlen, threshold, i + 1, 0, embeddedQ);
+  for (unsigned i = 0; i < candidate_regions.size(); ++i) {
+    Region &region = candidate_regions[i];
+    region.embed_dist = elen;
+
+    for (unsigned strid = 0; strid < NUM_STR; ++strid) {
+      if (best_threshold <= 1 && next_threshold <= 1) {
+        // if we already have 2 exact match/or dist 1 (one for best, one for second best for mapq), look for exact matches only
+        nmismatch = (memcmp(r, ptr_ref + region.rs, rlen) == 0 ? 0 : elen);
+      } else {
+        nmismatch = cgk2_unmatched(r, ptr_ref + region.rs, region.matched_intervals,
+                                   rlen, kmer_step, next_threshold, strid);
+      }
+      region.embed_dist = region.embed_dist < nmismatch ? region.embed_dist : nmismatch;
+
+      // if embed_dist is 0/1, no need to embed again
+      if (region.embed_dist == 0 || region.embed_dist == 1)
+        break;
+    }
+
+    // set best and next idx so that we dont have to sort regions later
+    // pick the minimal pos hit when several hits have same embed dist and the best one is not the hcov(0)
+    if (region.embed_dist < best_threshold ||
+        (region.embed_dist == best_threshold && best_idx != 0 && region.rs < candidate_regions[best_idx].rs)) {
+      if (i != best_idx) {
+        next_threshold = best_threshold;
+        next_idx = best_idx;
+      }
+      best_threshold = region.embed_dist;
+      best_idx = i;
+    } else if (region.embed_dist < next_threshold) {
+      if (i != best_idx) {
+        next_threshold = region.embed_dist;
+        next_idx = i;
+      }
+    }
+
   }
 
   auto end = std::chrono::system_clock::now();
@@ -192,75 +251,99 @@ void Embedding::embeddata_pair(vector<Region> &candidate_regions, char embeddedQ
   embed_time += elapsed.count();
 }
 
-void Embedding::embeddata_iterative_update(vector<Region> &candidate_regions,
-                                           const char **input, unsigned ninput, unsigned rlen,
-                                           int &best_threshold, int &next_threshold,
-                                           bool max_rnd, unsigned &best_idx, unsigned &next_idx) {
-  int step = 1;
-  int elen = rlen * efactor;
-  char embeddedQ[elen];
-
-  // do first candidate
+void Embedding::embed_unmatch(vector<Region> &candidate_regions,
+                              const char *ptr_ref,
+                              const char *r,
+                              const unsigned rlen,
+                              const unsigned kmer_step,
+                              bool flag_f1[]) {
   auto start = std::chrono::system_clock::now();
-  int nmismatch = 0;
-  if (best_threshold == 0 && next_threshold == 0) {
-    // if we already have 2 exact match (one for best, one for second best for mapq), look for exact matches only
-    nmismatch = (memcmp(input[1], input[0], rlen) == 0 ? 0 : elen);
-  } else {
-    // embed Q
-    embedstr(input, rlen, elen, 0, 0, embeddedQ);
-    nmismatch = embedstr(input, rlen, next_threshold, 1, 0, embeddedQ);
-  }
-  candidate_regions[0].embed_dist = nmismatch;
-  if (nmismatch < best_threshold) {
-    next_threshold = best_threshold;
-    best_threshold = nmismatch;
-  } else if (nmismatch < next_threshold) {
-    next_threshold = nmismatch;
-  }
-  int best_dist = nmismatch;
-  int next_dist = numeric_limits<int>::max();
-  best_idx = next_idx = 0;
 
-//#if DBGPRINT
-//    cout << "Candidate region 0 at pos " << candidate_regions[0].pos <<
-//        " with cov " << candidate_regions[0].cov << " has nmismatch " <<
-//        nmismatch << endl;
-//#endif
+  int elen = rlen * efactor, nmismatch;
 
-  for (unsigned i = 2; i < ninput; i += step) {
-    if (best_threshold == 0 && next_threshold == 0) {
-      // if we already have 2 exact match (one for best, one for second best for mapq), look for exact matches only
-      nmismatch = (memcmp(input[i], input[0], rlen) == 0 ? 0 : elen);
-    } else {
-      nmismatch = embedstr(input, rlen, next_threshold, i, 0, embeddedQ);
-    }
-    candidate_regions[i - 1].embed_dist = nmismatch;
-
-//#if DBGPRINT
-//        cout << "Candidate region " << i - 1 << " at pos " << candidate_regions[i - 1].pos <<
-//            " with cov " << candidate_regions[0].cov << " has nmismatch " <<
-//            nmismatch << endl;
-//#endif
-
-    if (nmismatch < best_threshold) {
-      next_threshold = best_threshold;
-      best_threshold = nmismatch;
-    } else if (nmismatch < next_threshold) {
-      next_threshold = nmismatch;
+  for (unsigned i = 0; i < candidate_regions.size(); ++i) {
+    if (!flag_f1[i]) {
+      continue;
     }
 
-    // set best and next idx so that we dont have to sort regions later
-    // pick the minimal pos hit when several hits have same embed dist and the best one is not the hcov(0)
-    if (nmismatch < best_dist ||
-        (nmismatch == best_dist && best_idx != 0 && candidate_regions[i - 1].rs < candidate_regions[best_idx].rs)) {
-      next_dist = best_dist;
-      next_idx = best_idx;
-      best_dist = nmismatch;
-      best_idx = i - 1;
-    } else if (nmismatch < next_dist) {
-      next_dist = nmismatch;
-      next_idx = i - 1;
+    Region &region = candidate_regions[i];
+    region.embed_dist = elen;
+
+    for (unsigned strid = 0; strid < NUM_STR; ++strid) {
+      nmismatch = cgk2_unmatched(r, ptr_ref + region.rs, region.matched_intervals, rlen, kmer_step, elen, strid);
+      region.embed_dist = region.embed_dist < nmismatch ? region.embed_dist : nmismatch;
+
+      // if embed_dist is 0/1, no need to embed again
+      if (region.embed_dist == 0 || region.embed_dist == 1)
+        break;
+    }
+
+  }
+
+  auto end = std::chrono::system_clock::now();
+  auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+  embed_time += elapsed.count();
+}
+
+void Embedding::embed_unmatch_pair(vector<Region> &candidate_regions_f1, vector<Region> &candidate_regions_r2,
+                                   const char *ptr_ref, const char *r, const unsigned rlen, const unsigned kmer_step,
+                                   bool flag_r2[], unsigned pairdis, int &best_threshold, int &next_threshold,
+                                   unsigned &best_f1, unsigned &best_r2) {
+  auto start = std::chrono::system_clock::now();
+
+  int elen = rlen * efactor, nmismatch;
+  best_threshold = next_threshold = elen;
+
+  for (unsigned i = 0; i < candidate_regions_r2.size(); i++) {
+    if (!flag_r2[i]) {
+      continue;
+    }
+
+    Region &region = candidate_regions_r2[i];
+    region.embed_dist = elen;
+
+    Region tmp;
+    tmp.rs = region.rs < pairdis ? 0 : region.rs - pairdis;
+    auto start = lower_bound(candidate_regions_f1.begin(), candidate_regions_f1.end(), tmp,
+                             [](const Region &left, const Region &right) {
+                               return left.rs < right.rs;
+                             }
+    );
+
+    tmp.rs = region.rs + pairdis;
+    auto end = upper_bound(candidate_regions_f1.begin(), candidate_regions_f1.end(), tmp,
+                           [](const Region &left, const Region &right) {
+                             return left.rs < right.rs;
+                           }
+    );
+
+    assert(start != end);
+
+    for (unsigned strid = 0; strid < NUM_STR; ++strid) {
+      if (best_threshold <= 1 && next_threshold <= 1) {
+        // if we already have 2 exact match/or dist 1 (one for best, one for second best for mapq), look for exact matches only
+        nmismatch = (memcmp(r, ptr_ref + region.rs, rlen) == 0 ? 0 : elen);
+      } else {
+        nmismatch = cgk2_unmatched(r, ptr_ref + region.rs, region.matched_intervals, rlen, kmer_step,
+                                   min(int(region.embed_dist), next_threshold), strid);
+      }
+      region.embed_dist = region.embed_dist < nmismatch ? region.embed_dist : nmismatch;
+
+      // if embed_dist is 0/1, no need to embed again
+      if (region.embed_dist == 0 || region.embed_dist == 1)
+        break;
+    }
+
+    for (auto itr = start; itr != end; ++itr) {
+      int sum_dist = region.embed_dist + itr->embed_dist;
+      if (sum_dist <= best_threshold) {
+        next_threshold = best_threshold;
+        best_threshold = sum_dist;
+        best_f1 = itr - candidate_regions_f1.begin();
+        best_r2 = i;
+      } else if (sum_dist < next_threshold) {
+        next_threshold = sum_dist;
+      }
     }
   }
 
@@ -279,7 +362,7 @@ Embedding::Embedding() {
   time_t seed = time(NULL);
   srand(seed);
   cerr << "Embedding using random seed " << seed << endl;
-  //srand(1559063236);
+//  srand(1559063236);
   cerr << "Creating " << NUM_STR << " random string(s) of length: " <<
        MAX_ELEN << endl;
   embed_time = 0;
