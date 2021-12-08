@@ -2,7 +2,6 @@
 
 #include "const.h"
 
-
 struct Alignment {
   std::string cigar_string;
   int ref_begin;
@@ -34,11 +33,19 @@ struct Read {
   int tid, as, nm, best, secBest;
   uint32_t pos;
   char strand;
-  short mapq;
+  short mapq, n_sub; //number of second best
   short kmer_step; //kmer_step used that find the seed
+  float uniq_ratio;
+  bool has_secbest;
   Region best_region;
 
   friend gzFile &operator>>(gzFile &in, Read &r);
+
+  Read() {
+    best = INT_MAX;
+    secBest = INT_MAX;
+  }
+
 };
 
 class Reference {

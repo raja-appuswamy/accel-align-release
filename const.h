@@ -42,3 +42,4 @@
 #endif
 
 #define MAX_OCC 1000
+#define MIS_PENALTY -1

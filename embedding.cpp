@@ -195,14 +195,9 @@ int Embedding::embedstr(const char **oridata, unsigned rlen, int threshold, int 
 #endif
 }
 
-void Embedding::embed_unmatch_iter(vector<Region> &candidate_regions,
-                                   const char *ptr_ref,
-                                   const char *r,
-                                   const unsigned rlen,
-                                   const unsigned kmer_step,
-                                   int &best_threshold,
-                                   int &next_threshold,
-                                   unsigned &best_idx, unsigned &next_idx) {
+void Embedding::embed_unmatch_iter(vector<Region> &candidate_regions, const char *ptr_ref, const char *r,
+                                   const unsigned rlen, const unsigned kmer_step, int &best_threshold,
+                                   int &next_threshold, unsigned &best_idx, unsigned &next_idx, short &n_sub) {
 
   auto start = std::chrono::system_clock::now();
 
@@ -229,6 +224,12 @@ void Embedding::embed_unmatch_iter(vector<Region> &candidate_regions,
 
     // set best and next idx so that we dont have to sort regions later
     // pick the minimal pos hit when several hits have same embed dist and the best one is not the hcov(0)
+    if (region.embed_dist < best_threshold) {
+      n_sub = 0;
+    } else if (region.embed_dist == best_threshold) {
+      ++n_sub;
+    }
+
     if (region.embed_dist < best_threshold ||
         (region.embed_dist == best_threshold && best_idx != 0 && region.rs < candidate_regions[best_idx].rs)) {
       if (i != best_idx) {
@@ -285,10 +286,11 @@ void Embedding::embed_unmatch(vector<Region> &candidate_regions,
   embed_time += elapsed.count();
 }
 
-void Embedding::embed_unmatch_pair(vector<Region> &candidate_regions_f1, vector<Region> &candidate_regions_r2,
+void Embedding::embed_unmatch_pair(Read &mate1, Read &mate2,
+                                   vector<Region> &candidate_regions_f1, vector<Region> &candidate_regions_r2,
                                    const char *ptr_ref, const char *r, const unsigned rlen, const unsigned kmer_step,
                                    bool flag_r2[], unsigned pairdis, int &best_threshold, int &next_threshold,
-                                   unsigned &best_f1, unsigned &best_r2) {
+                                   unsigned &best_f1, unsigned &best_r2, short &n_sub, bool &has_sec) {
   auto start = std::chrono::system_clock::now();
 
   int elen = rlen * efactor, nmismatch;
@@ -336,13 +338,23 @@ void Embedding::embed_unmatch_pair(vector<Region> &candidate_regions_f1, vector<
 
     for (auto itr = start; itr != end; ++itr) {
       int sum_dist = region.embed_dist + itr->embed_dist;
+      if (sum_dist < best_threshold)
+        n_sub = 0;
+      else if (sum_dist == best_threshold)
+        ++n_sub;
+
       if (sum_dist <= best_threshold) {
         next_threshold = best_threshold;
         best_threshold = sum_dist;
         best_f1 = itr - candidate_regions_f1.begin();
         best_r2 = i;
+        mate1.secBest = mate1.best;
+        mate2.secBest = mate2.best;
+        mate1.best = mate1.best < itr->embed_dist ? mate1.best : itr->embed_dist;
+        mate2.best = mate2.best < region.embed_dist ? mate2.best : region.embed_dist;
       } else if (sum_dist < next_threshold) {
         next_threshold = sum_dist;
+        has_sec = true;
       }
     }
   }
