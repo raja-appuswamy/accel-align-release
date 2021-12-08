@@ -26,7 +26,7 @@ class AccAlign {
                      tbb::concurrent_bounded_queue<ReadPair> *dataQ);
   void embed_wrapper(Read &R, bool ispe, vector<Region> &fregion,
                      vector<Region> &rregion, unsigned &fbest, unsigned &fnext, unsigned &rbest,
-                     unsigned &rnext);
+                     unsigned &rnext, int &best_threshold, int &next_threshold);
   void pghole_wrapper(Read &R, vector<Region> &fcandidate_regions,
                       vector<Region> &rcandidate_regions, unsigned &fbest, unsigned &rbest);
   void pigeonhole_query_topcov(char *Q, size_t rlen, vector<Region> &candidate_regions, char S, int err_threshold,

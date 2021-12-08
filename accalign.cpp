@@ -978,7 +978,8 @@ void AccAlign::embed_wrapper_pair(Read &R1, Read &R2,
 
 void AccAlign::embed_wrapper(Read &R, bool ispe,
                              vector<Region> &fcandidate_regions, vector<Region> &rcandidate_regions,
-                             unsigned &fbest, unsigned &fnext, unsigned &rbest, unsigned &rnext) {
+                             unsigned &fbest, unsigned &fnext, unsigned &rbest, unsigned &rnext,
+                             int &best_threshold, int &next_threshold) {
   unsigned nfregions = fcandidate_regions.size();
   unsigned nrregions = rcandidate_regions.size();
   assert(nfregions + nrregions > 0); //at least one hit
@@ -1002,8 +1003,6 @@ void AccAlign::embed_wrapper(Read &R, bool ispe,
   // forward or for reverse or for both strands. If we have only 1 region
   // globally, there is no point embedding.
   size_t rlen = strlen(R.seq);
-  int best_threshold = rlen * embedding->efactor;
-  int next_threshold = rlen * embedding->efactor;
   fbest = fnext = rbest = rnext = 0;
   const char *ptr_ref = ref.c_str();
 
@@ -1103,7 +1102,10 @@ void AccAlign::map_read(Read &R) {
     seeding_time += elapsed.count();
 
     unsigned fnext, rnext;
-    embed_wrapper(R, false, fcandidate_regions, rcandidate_regions, fbest, fnext, rbest, rnext);
+    int best_threshold = strlen(R.seq) * embedding->efactor;
+    int next_threshold = strlen(R.seq) * embedding->efactor;
+    embed_wrapper(R, false, fcandidate_regions, rcandidate_regions, fbest, fnext, rbest, rnext,
+                  best_threshold, next_threshold);
 
     start = std::chrono::system_clock::now();
 
@@ -1129,6 +1131,9 @@ void AccAlign::map_read(Read &R) {
         }
       }
     }
+
+    R.best = best_threshold;
+    R.secBest = next_threshold;
 
     end = std::chrono::system_clock::now();
     elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
