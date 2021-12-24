@@ -14,14 +14,14 @@ class Embedding {
   int cgk2_embed_nmismatch(const char *oridata, unsigned rlen, int threshold, int strid, char *embeddedQ);
   void embed_unmatch_iter(vector<Region> &candidate_regions, const char *ptr_ref, const char *r, const unsigned rlen,
                           const unsigned kmer_len, int &best_threshold, int &next_threshold,
-                          unsigned &best_idx, unsigned &next_idx, short &n_sub);
+                          unsigned &best_idx, unsigned &next_idx);
   void embed_unmatch(vector<Region> &candidate_regions, const char *ptr_ref, const char *r, const unsigned rlen,
                      const unsigned kmer_step, bool flag_f1[]);
   void embed_unmatch_pair(Read &mate1, Read &mate2,
                           vector<Region> &candidate_regions_f1, vector<Region> &candidate_regions_r2,
                           const char *ptr_ref, const char *r, const unsigned rlen, const unsigned kmer_step,
                           bool flag_r2[], unsigned pairdis, int &best_threshold, int &next_threshold,
-                          unsigned &best_f1, unsigned &best_r2, short &n_sub, bool &has_sec);
+                          unsigned &best_f1, unsigned &best_r2);
 
   //unsigned char **hash_eb;
   std::bitset<TOTAL_RBITS> hash_eb;

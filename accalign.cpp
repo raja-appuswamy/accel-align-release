@@ -708,10 +708,8 @@ void AccAlign::pghole_wrapper(Read &R,
     if (nkmers < 4) {
       //nkmer 3, 2, 1, top 2 cov of cov >=2, is 3, 2, is as same as cov>=2
       // as cov2 is faster than top2, use cov2
-      pigeonhole_query(R.fwd, rlen, fcandidate_regions, '+', fbest, ori_slide, 2, kmer_step, MAX_OCC, high_freq,
-                       R.uniq_ratio);
-      pigeonhole_query(R.rev, rlen, rcandidate_regions, '-', rbest, ori_slide, 2, kmer_step, MAX_OCC, high_freq,
-                       R.uniq_ratio);
+      pigeonhole_query(R.fwd, rlen, fcandidate_regions, '+', fbest, ori_slide, 2, kmer_step, MAX_OCC, high_freq);
+      pigeonhole_query(R.rev, rlen, rcandidate_regions, '-', rbest, ori_slide, 2, kmer_step, MAX_OCC, high_freq);
     } else {
       pigeonhole_query_topcov(R.fwd, rlen, fcandidate_regions, '+', 2, kmer_step, MAX_OCC, fbest, ori_slide);
       pigeonhole_query_topcov(R.rev, rlen, rcandidate_regions, '-', 2, kmer_step, MAX_OCC, rbest, ori_slide);
@@ -720,10 +718,8 @@ void AccAlign::pghole_wrapper(Read &R,
     nrregions = rcandidate_regions.size();
 
     if (!nfregions && !nrregions) {
-      pigeonhole_query(R.fwd, rlen, fcandidate_regions, '+', fbest, ori_slide, 1, kmer_step, MAX_OCC, high_freq,
-                       R.uniq_ratio);
-      pigeonhole_query(R.rev, rlen, rcandidate_regions, '-', rbest, ori_slide, 1, kmer_step, MAX_OCC, high_freq,
-                       R.uniq_ratio);
+      pigeonhole_query(R.fwd, rlen, fcandidate_regions, '+', fbest, ori_slide, 1, kmer_step, MAX_OCC, high_freq);
+      pigeonhole_query(R.rev, rlen, rcandidate_regions, '-', rbest, ori_slide, 1, kmer_step, MAX_OCC, high_freq);
       nfregions = fcandidate_regions.size();
       nrregions = rcandidate_regions.size();
     }
@@ -744,8 +740,7 @@ void AccAlign::pigeonhole_query(char *Q,
                                 int err_threshold,
                                 unsigned kmer_step,
                                 unsigned max_occ,
-                                bool &high_freq,
-                                float &uniq_ratio) {
+                                bool &high_freq) {
   int max_cov = 0;
   unsigned nkmers = (rlen - ori_slide - kmer_len) / kmer_step + 1;
   size_t ntotal_hits = 0;
@@ -773,7 +768,6 @@ void AccAlign::pigeonhole_query(char *Q,
 
   if (nseed_freq > nkmers / 2)
     high_freq = true;
-  uniq_ratio = (float) (nkmers - nseed_freq) / nkmers;
 
   for (size_t i = 0; i < nkmers; i++) {
     if ((!high_freq && e[i] - b[i] < max_occ) || high_freq)
@@ -896,19 +890,15 @@ void AccAlign::pghole_wrapper_mates(Read &R,
   unsigned rlen = strlen(R.seq);
 
   // MAX_OCC, cov >= 2
-  pigeonhole_query(R.fwd, rlen, fcandidate_regions, '+', fbest, ori_slide, 2, kmer_step, max_occ, high_freq,
-                   R.uniq_ratio);
-  pigeonhole_query(R.rev, rlen, rcandidate_regions, '-', rbest, ori_slide, 2, kmer_step, max_occ, high_freq,
-                   R.uniq_ratio);
+  pigeonhole_query(R.fwd, rlen, fcandidate_regions, '+', fbest, ori_slide, 2, kmer_step, max_occ, high_freq);
+  pigeonhole_query(R.rev, rlen, rcandidate_regions, '-', rbest, ori_slide, 2, kmer_step, max_occ, high_freq);
   R.kmer_step = kmer_step;
   unsigned nfregions = fcandidate_regions.size();
   unsigned nrregions = rcandidate_regions.size();
 
   if (!nfregions && !nrregions) {
-    pigeonhole_query(R.fwd, rlen, fcandidate_regions, '+', fbest, ori_slide, 1, kmer_step, max_occ, high_freq,
-                     R.uniq_ratio);
-    pigeonhole_query(R.rev, rlen, rcandidate_regions, '-', rbest, ori_slide, 1, kmer_step, max_occ, high_freq,
-                     R.uniq_ratio);
+    pigeonhole_query(R.fwd, rlen, fcandidate_regions, '+', fbest, ori_slide, 1, kmer_step, max_occ, high_freq);
+    pigeonhole_query(R.rev, rlen, rcandidate_regions, '-', rbest, ori_slide, 1, kmer_step, max_occ, high_freq);
   }
 }
 
@@ -978,16 +968,11 @@ void AccAlign::embed_wrapper_pair(Read &R1, Read &R2,
     seq2 = R2.fwd;
   }
 
-  short n_sub = 0;
-  bool has_sec = false;
   //embed r1
   embedding->embed_unmatch(candidate_regions_f1, ptr_ref, seq1, strlen(R1.seq), R1.kmer_step, flag_f1);
   //embed r2
   embedding->embed_unmatch_pair(R1, R2, candidate_regions_f1, candidate_regions_r2, ptr_ref, seq2, strlen(R2.seq),
-                                R2.kmer_step, flag_r2, pairdis, best_threshold, next_threshold, best_f1, best_r2,
-                                n_sub, has_sec);
-  R1.n_sub = R2.n_sub = n_sub;
-  R1.has_secbest = R2.has_secbest = has_sec;
+                                R2.kmer_step, flag_r2, pairdis, best_threshold, next_threshold, best_f1, best_r2);
 }
 
 void AccAlign::embed_wrapper(Read &R, bool ispe,
@@ -1022,153 +1007,21 @@ void AccAlign::embed_wrapper(Read &R, bool ispe,
 
   if (fwd_first) {
     embedding->embed_unmatch_iter(fcandidate_regions, ptr_ref, R.fwd, rlen, R.kmer_step,
-                                  best_threshold, next_threshold, fbest, fnext, R.n_sub);
+                                  best_threshold, next_threshold, fbest, fnext);
     if (nrregions)
       embedding->embed_unmatch_iter(rcandidate_regions, ptr_ref, R.rev, rlen, R.kmer_step,
-                                    best_threshold, next_threshold, rbest, rnext, R.n_sub);
+                                    best_threshold, next_threshold, rbest, rnext);
   } else {
     embedding->embed_unmatch_iter(rcandidate_regions, ptr_ref, R.rev, rlen, R.kmer_step,
-                                  best_threshold, next_threshold, rbest, rnext, R.n_sub);
+                                  best_threshold, next_threshold, rbest, rnext);
     if (nfregions)
       embedding->embed_unmatch_iter(fcandidate_regions, ptr_ref, R.fwd, rlen, R.kmer_step,
-                                    best_threshold, next_threshold, fbest, fnext, R.n_sub);
+                                    best_threshold, next_threshold, fbest, fnext);
   }
 
 }
 
-int AccAlign::get_mapq(int best, int secbest, bool hasSecbest, int rlen) {
-  best = MIS_PENALTY * best;
-  secbest = MIS_PENALTY * secbest;
-
-  int64_t scMin = -0.6 + -0.6 * rlen;
-  int64_t diff = abs(scMin);
-  int64_t bestOver = best - scMin;
-  int ret;
-
-  if (!hasSecbest) {
-    if (bestOver >= diff * (double) 0.9f)
-      ret = 42;
-    else if (bestOver >= diff * (double) 0.8f)
-      ret = 40;
-    else if (bestOver >= diff * (double) 0.7f)
-      ret = 24;
-    else if (bestOver >= diff * (double) 0.6f)
-      ret = 23;
-    else if (bestOver >= diff * (double) 0.5f)
-      ret = 8;
-    else if (bestOver >= diff * (double) 0.4f)
-      ret = 3;
-    else
-      ret = 0;
-  } else {
-    int64_t bestdiff = abs(abs(static_cast<long>(best)) - abs(static_cast<long>(secbest)));
-    if (bestdiff >= diff * (double) 0.9f) {
-      if (bestOver == diff) {
-        ret = 39;
-      } else {
-        ret = 33;
-      }
-    } else if (bestdiff >= diff * (double) 0.8f) {
-      if (bestOver == diff) {
-        ret = 38;
-      } else {
-        ret = 27;
-      }
-    } else if (bestdiff >= diff * (double) 0.7f) {
-      if (bestOver == diff) {
-        ret = 37;
-      } else {
-        ret = 26;
-      }
-    } else if (bestdiff >= diff * (double) 0.6f) {
-      if (bestOver == diff) {
-        ret = 36;
-      } else {
-        ret = 22;
-      }
-    } else if (bestdiff >= diff * (double) 0.5f) {
-      if (bestOver == diff) {
-        ret = 35;
-      } else if (bestOver >= diff * (double) 0.84f) {
-        ret = 25;
-      } else if (bestOver >= diff * (double) 0.68f) {
-        ret = 16;
-      } else {
-        ret = 5;
-      }
-    } else if (bestdiff >= diff * (double) 0.4f) {
-      if (bestOver == diff) {
-        ret = 34;
-      } else if (bestOver >= diff * (double) 0.84f) {
-        ret = 21;
-      } else if (bestOver >= diff * (double) 0.68f) {
-        ret = 14;
-      } else {
-        ret = 4;
-      }
-    } else if (bestdiff >= diff * (double) 0.3f) {
-      if (bestOver == diff) {
-        ret = 32;
-      } else if (bestOver >= diff * (double) 0.88f) {
-        ret = 18;
-      } else if (bestOver >= diff * (double) 0.67f) {
-        ret = 15;
-      } else {
-        ret = 3;
-      }
-    } else if (bestdiff >= diff * (double) 0.2f) {
-      if (bestOver == diff) {
-        ret = 31;
-      } else if (bestOver >= diff * (double) 0.88f) {
-        ret = 17;
-      } else if (bestOver >= diff * (double) 0.67f) {
-        ret = 11;
-      } else {
-        ret = 0;
-      }
-    } else if (bestdiff >= diff * (double) 0.1f) {
-      if (bestOver == diff) {
-        ret = 30;
-      } else if (bestOver >= diff * (double) 0.88f) {
-        ret = 12;
-      } else if (bestOver >= diff * (double) 0.67f) {
-        ret = 7;
-      } else {
-        ret = 0;
-      }
-    } else if (bestdiff > 0) {
-      if (bestOver >= diff * (double) 0.67f) {
-        ret = 6;
-      } else {
-        ret = 2;
-      }
-    } else {
-      assert(bestdiff == 0);
-      if (bestOver >= diff * (double) 0.67f) {
-        ret = 1;
-      } else {
-        ret = 0;
-      }
-    }
-  }
-  return ret;
-}
-
-//int AccAlign::get_mapq(int as, int best, int secbest, int mlen, int blen, int cov, short n_sub, float uniq_ratio) {
-//  static const float q_coef = 40.0f;
-//  float identity = (float) mlen / blen;
-////  float x = (float) (best / secbest);
-//  float x = (float) (best / (secbest + 1)); //in case secbest = 0
-//  float cov_f = (float) cov / (mlen / kmer_len);
-//  int mapq = (int) (uniq_ratio * cov_f * q_coef * identity * (1 - x) * logf((float) as / SC_MCH));
-//  mapq -= (int) (4.343f * logf(n_sub + 1) + .499f);
-//  mapq = mapq < 60 ? mapq : 60;
-//  mapq = mapq < 0 ? 0 : mapq;
-//  return mapq;
-//}
-
-int AccAlign::get_mapq(int as, int best, int secBest, int mlen, int blen, int cov, short n_sub, float uniq_ratio) {
-  //if embed dist = 0/1, should have a high conf (exact match)
+int AccAlign::get_mapq(int best, int secBest) {
   int mapq;
   if (secBest == 0 && best == 0) {
     mapq = 40;
@@ -1176,7 +1029,6 @@ int AccAlign::get_mapq(int as, int best, int secBest, int mlen, int blen, int co
     float x = (float) best / secBest;
     mapq = ceil(60 * (1 - x * x));
   }
-  //mapq -= (int) (4.343f * logf(n_sub + 1) + .499f);
   mapq = mapq < 60 ? mapq : 60;
   mapq = mapq < 0 ? 0 : mapq;
   return mapq;
@@ -1284,10 +1136,6 @@ void AccAlign::map_read(Read &R) {
 
     R.best = best_threshold;
     R.secBest = next_threshold;
-    if (next_threshold < strlen(R.seq) * embedding->efactor)
-      R.has_secbest = true;
-    else
-      R.has_secbest = false;
 
     end = std::chrono::system_clock::now();
     elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
@@ -1448,30 +1296,13 @@ void AccAlign::map_paired_read(Read &mate1, Read &mate2) {
   delete[] flag_r2;
 
   start = std::chrono::system_clock::now();
-  int secmin_dist;
   if (best_f1r2 <= best_r1f2) {
     mark_for_extension(mate1, '+', region_f1[best_f1]);
     mark_for_extension(mate2, '-', region_r2[best_r2]);
-    if (best_r1f2 < next_f1r2)
-      secmin_dist = best_r1f2;
-    else
-      secmin_dist = next_f1r2;
   } else {
     mark_for_extension(mate2, '+', region_f2[best_f2]);
     mark_for_extension(mate1, '-', region_r1[best_r1]);
-    if (best_f1r2 < next_r1f2)
-      secmin_dist = best_f1r2;
-    else
-      secmin_dist = next_r1f2;
   }
-
-//  mate1.best = mate2.best = min(best_f1r2, best_r1f2);
-//  mate1.secBest = mate2.secBest = secmin_dist;
-//  size_t max_hamming = (strlen(mate1.seq) + strlen(mate2.seq)) * embedding->efactor;
-
-  bool has_secbest = mate1.has_secbest || (has_f1r2 && has_r1f2);
-//  int mapq = get_mapq(mate1.best, mate1.secBest, has_secbest, max_hamming);
-//  mate1.mapq = mate2.mapq = mapq;
 
   end = std::chrono::system_clock::now();
   elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
@@ -2004,7 +1835,6 @@ static void append_cigar(Extension *&rp, uint32_t n_cigar, uint32_t *cigar) {
 void AccAlign::score_region(Read &r, char *qseq, Region &region,
                             Alignment &a) {
   unsigned qlen = strlen(r.seq);
-//  r.mapq  = get_mapq(r.best, r.secBest);
 
   // if the region has a embed distance of 0, then its an exact match
   if (!extend_all && (region.embed_dist == 0 || region.embed_dist == 1 || !enable_extension)) {
@@ -2013,23 +1843,7 @@ void AccAlign::score_region(Read &r, char *qseq, Region &region,
     if (region.embed_dist == 1)
       region.score = (qlen - 1) * SC_MCH - SC_MIS;
 
-    int edit_mismatch = region.embed_dist == 0 ? 0 : 1;
-    r.mapq = get_mapq(region.score, r.best, r.secBest, qlen - edit_mismatch, qlen, region.cov, r.n_sub, r.uniq_ratio);
-
-//    //if embed dist = 0/1, should have a high conf (exact match)
-//    if (r.secBest == 0) {
-//      r.mapq = 40;
-//    } else {
-//      int mapq;
-//      if (r.best == 0)
-//        mapq = 40 + ceil(20 * (1 - (float) (++r.best) / r.secBest)); //r.best=0, r.secBest =1, expect to be < 60
-//      else
-//        mapq = 40 + ceil(20 * (1 - (float) r.best / r.secBest));
-//      mapq = mapq < 60 ? mapq : 60;
-//      mapq = mapq < 0 ? 0 : mapq;
-//      r.mapq = mapq;
-//    }
-
+    r.mapq = get_mapq(r.best, r.secBest);
   } else {
     Extension *extension = nullptr;
     uint32_t raw_rs = region.rs;
@@ -2105,7 +1919,7 @@ void AccAlign::score_region(Read &r, char *qseq, Region &region,
       cigar_string << beginclip << 'S';
 
     unsigned i = 0;
-    int edit_mismatch = 0, match = 0;
+    int edit_mismatch = 0;
     unsigned ref_pos = region.rs, read_pos = beginclip;
     while (i < extension->n_cigar) {
       int count = extension->cigar[i] >> 4;
@@ -2121,8 +1935,6 @@ void AccAlign::score_region(Read &r, char *qseq, Region &region,
           for (int j = 0; j < count; j++, ref_pos++, read_pos++) {
             if (ref.c_str()[ref_pos] != qseq[read_pos])
               edit_mismatch++;
-            else
-              match++;
           }
           break;
         case 'D':edit_mismatch += count;
@@ -2138,8 +1950,7 @@ void AccAlign::score_region(Read &r, char *qseq, Region &region,
     if (endclip)
       cigar_string << endclip << 'S';
 
-    r.mapq = get_mapq(extension->dp_score, r.best, r.secBest, match, match + edit_mismatch,
-                      region.cov, r.n_sub, r.uniq_ratio);
+    r.mapq = get_mapq(r.best, r.secBest);
     a.cigar_string = cigar_string.str();
     a.ref_begin = 0;
     region.score = extension->dp_score;

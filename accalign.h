@@ -36,7 +36,7 @@ class AccAlign {
                             bool &high_freq);
   void pigeonhole_query(char *Q, size_t rlen, vector<Region> &candidate_regions, char S,
                         unsigned &best, unsigned ori_slide, int err_threshold, unsigned kmer_step,
-                        unsigned max_occ, bool &high_freq, float &uniq_ratio);
+                        unsigned max_occ, bool &high_freq);
   void pghole_wrapper_pair(Read &mate1, Read &mate2,
                            vector<Region> &region_f1, vector<Region> &region_r1,
                            vector<Region> &region_f2, vector<Region> &region_r2,
@@ -79,8 +79,6 @@ class AccAlign {
   void map_paired_read(Read &mate1, Read &mate2);
   void wfa_align_read(Read &R);
   void rectify_start_pos(char *strand, Region &region, unsigned rlen);
-  int get_mapq(int as, int best, int secbest, int mlen, int blen, int cov, short n_sub, float uniq_ratio);
-  int get_mapq(int best, int secbest, bool hasSecbest, int rlen);
   void print_paired_sam(Read &R, Read &R2);
   void print_sam(Read &R);
   bool tbb_fastq(const char *F1, const char *F2);
