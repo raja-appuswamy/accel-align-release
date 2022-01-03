@@ -26,7 +26,7 @@ class AccAlign {
                      tbb::concurrent_bounded_queue<ReadPair> *dataQ);
   void embed_wrapper(Read &R, bool ispe, vector<Region> &fregion,
                      vector<Region> &rregion, unsigned &fbest, unsigned &fnext, unsigned &rbest,
-                     unsigned &rnext);
+                     unsigned &rnext, int &best_threshold, int &next_threshold);
   void pghole_wrapper(Read &R, vector<Region> &fcandidate_regions,
                       vector<Region> &rcandidate_regions, unsigned &fbest, unsigned &rbest);
   void pigeonhole_query_topcov(char *Q, size_t rlen, vector<Region> &candidate_regions, char S, int err_threshold,
@@ -79,10 +79,10 @@ class AccAlign {
   void map_paired_read(Read &mate1, Read &mate2);
   void wfa_align_read(Read &R);
   void rectify_start_pos(char *strand, Region &region, unsigned rlen);
-  int get_mapq(int as, int best, int secbest, int rlen, int clen, int cov);
   void print_paired_sam(Read &R, Read &R2);
   void print_sam(Read &R);
   bool tbb_fastq(const char *F1, const char *F2);
+  int get_mapq(int best, int secbest);
   AccAlign(Reference &r);
   ~AccAlign();
 };

@@ -705,7 +705,7 @@ void AccAlign::pghole_wrapper(Read &R,
 
     unsigned nkmers = (rlen - ori_slide - kmer_len) / kmer_step + 1;
 
-    if (nkmers < 4){
+    if (nkmers < 4) {
       //nkmer 3, 2, 1, top 2 cov of cov >=2, is 3, 2, is as same as cov>=2
       // as cov2 is faster than top2, use cov2
       pigeonhole_query(R.fwd, rlen, fcandidate_regions, '+', fbest, ori_slide, 2, kmer_step, MAX_OCC, high_freq);
@@ -971,14 +971,14 @@ void AccAlign::embed_wrapper_pair(Read &R1, Read &R2,
   //embed r1
   embedding->embed_unmatch(candidate_regions_f1, ptr_ref, seq1, strlen(R1.seq), R1.kmer_step, flag_f1);
   //embed r2
-  embedding->embed_unmatch_pair(candidate_regions_f1, candidate_regions_r2, ptr_ref, seq2, strlen(R2.seq), R2.kmer_step,
-                                flag_r2, pairdis, best_threshold, next_threshold, best_f1, best_r2);
-
+  embedding->embed_unmatch_pair(R1, R2, candidate_regions_f1, candidate_regions_r2, ptr_ref, seq2, strlen(R2.seq),
+                                R2.kmer_step, flag_r2, pairdis, best_threshold, next_threshold, best_f1, best_r2);
 }
 
 void AccAlign::embed_wrapper(Read &R, bool ispe,
                              vector<Region> &fcandidate_regions, vector<Region> &rcandidate_regions,
-                             unsigned &fbest, unsigned &fnext, unsigned &rbest, unsigned &rnext) {
+                             unsigned &fbest, unsigned &fnext, unsigned &rbest, unsigned &rnext,
+                             int &best_threshold, int &next_threshold) {
   unsigned nfregions = fcandidate_regions.size();
   unsigned nrregions = rcandidate_regions.size();
   assert(nfregions + nrregions > 0); //at least one hit
@@ -1002,8 +1002,6 @@ void AccAlign::embed_wrapper(Read &R, bool ispe,
   // forward or for reverse or for both strands. If we have only 1 region
   // globally, there is no point embedding.
   size_t rlen = strlen(R.seq);
-  int best_threshold = rlen * embedding->efactor;
-  int next_threshold = rlen * embedding->efactor;
   fbest = fnext = rbest = rnext = 0;
   const char *ptr_ref = ref.c_str();
 
@@ -1023,11 +1021,14 @@ void AccAlign::embed_wrapper(Read &R, bool ispe,
 
 }
 
-int AccAlign::get_mapq(int as, int best, int secbest, int rlen, int clen, int cov) {
-  static const float q_coef = 40.0f;
-  float identity = (float) rlen / clen;
-  float x = (float) best / secbest;
-  int mapq = (int) (cov * q_coef * identity * (1 - x) * logf((float) as / SC_MCH));
+int AccAlign::get_mapq(int best, int secBest) {
+  int mapq;
+  if (secBest == 0 && best == 0) {
+    mapq = 40;
+  } else {
+    float x = (float) best / secBest;
+    mapq = ceil(60 * (1 - x * x));
+  }
   mapq = mapq < 60 ? mapq : 60;
   mapq = mapq < 0 ? 0 : mapq;
   return mapq;
@@ -1103,7 +1104,10 @@ void AccAlign::map_read(Read &R) {
     seeding_time += elapsed.count();
 
     unsigned fnext, rnext;
-    embed_wrapper(R, false, fcandidate_regions, rcandidate_regions, fbest, fnext, rbest, rnext);
+    int best_threshold = strlen(R.seq) * embedding->efactor;
+    int next_threshold = strlen(R.seq) * embedding->efactor;
+    embed_wrapper(R, false, fcandidate_regions, rcandidate_regions, fbest, fnext, rbest, rnext,
+                  best_threshold, next_threshold);
 
     start = std::chrono::system_clock::now();
 
@@ -1129,6 +1133,9 @@ void AccAlign::map_read(Read &R) {
         }
       }
     }
+
+    R.best = best_threshold;
+    R.secBest = next_threshold;
 
     end = std::chrono::system_clock::now();
     elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
@@ -1269,7 +1276,6 @@ void AccAlign::map_paired_read(Read &mate1, Read &mate2) {
 
     mate1.best = mate2.best = min(best_f1r2, best_r1f2);
     mate1.secBest = mate2.secBest = secmin_dist;
-
     return;
   }
 
@@ -1290,25 +1296,13 @@ void AccAlign::map_paired_read(Read &mate1, Read &mate2) {
   delete[] flag_r2;
 
   start = std::chrono::system_clock::now();
-  int secmin_dist;
   if (best_f1r2 <= best_r1f2) {
     mark_for_extension(mate1, '+', region_f1[best_f1]);
     mark_for_extension(mate2, '-', region_r2[best_r2]);
-    if (best_r1f2 < next_f1r2)
-      secmin_dist = best_r1f2;
-    else
-      secmin_dist = next_f1r2;
   } else {
     mark_for_extension(mate2, '+', region_f2[best_f2]);
     mark_for_extension(mate1, '-', region_r1[best_r1]);
-    if (best_f1r2 < next_r1f2)
-      secmin_dist = best_f1r2;
-    else
-      secmin_dist = next_r1f2;
   }
-
-  mate1.best = mate2.best = min(best_f1r2, best_r1f2);
-  mate1.secBest = mate2.secBest = secmin_dist;
 
   end = std::chrono::system_clock::now();
   elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
@@ -1843,13 +1837,14 @@ void AccAlign::score_region(Read &r, char *qseq, Region &region,
   unsigned qlen = strlen(r.seq);
 
   // if the region has a embed distance of 0, then its an exact match
-  if (!extend_all && (!region.embed_dist || !enable_extension)) {
-    // XXX: the scoring here of setting it to len is based on the
-    // assumption that our current ssw impl. gives a best score of 150
-    region.score = qlen * SC_MCH;
-    r.mapq = 60;
-  } else {
+  if (!extend_all && (region.embed_dist == 0 || region.embed_dist == 1 || !enable_extension)) {
+    if (region.embed_dist == 0)
+      region.score = qlen * SC_MCH;
+    if (region.embed_dist == 1)
+      region.score = (qlen - 1) * SC_MCH - SC_MIS;
 
+    r.mapq = get_mapq(r.best, r.secBest);
+  } else {
     Extension *extension = nullptr;
     uint32_t raw_rs = region.rs;
 
@@ -1955,7 +1950,7 @@ void AccAlign::score_region(Read &r, char *qseq, Region &region,
     if (endclip)
       cigar_string << endclip << 'S';
 
-    r.mapq = get_mapq(extension->dp_score, r.best, r.secBest, qlen, qlen + edit_mismatch, region.cov);
+    r.mapq = get_mapq(r.best, r.secBest);
     a.cigar_string = cigar_string.str();
     a.ref_begin = 0;
     region.score = extension->dp_score;
@@ -1967,7 +1962,7 @@ void AccAlign::score_region(Read &r, char *qseq, Region &region,
 
 void AccAlign::save_region(Read &R, size_t rlen, Region &region,
                            Alignment &a) {
-  if (!region.embed_dist) {
+  if (!region.embed_dist || region.embed_dist == 1) {
     R.pos = region.rs;
     sprintf(R.cigar, "%uM", (unsigned) rlen);
     R.nm = 0;
@@ -2236,6 +2231,10 @@ struct tbb_align {
     Read *mate2 = std::get<1>(p);
     accalign->align_read(*mate1);
     accalign->align_read(*mate2);
+
+    int mapq_pe = mate1->mapq > mate2->mapq? mate1->mapq : mate2->mapq;
+    if (mate1->mapq < mapq_pe) mate1->mapq = (int)(.2f * mate1->mapq + .8f * mapq_pe + .499f);
+    if (mate2->mapq < mapq_pe) mate2->mapq = (int)(.2f * mate2->mapq + .8f * mapq_pe + .499f);
 
     return p;
   }
