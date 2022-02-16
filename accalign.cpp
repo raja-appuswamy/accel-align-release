@@ -87,6 +87,7 @@ void print_usage() {
   cerr << "\t-x Alignment-free mode\n";
   cerr << "\t-w Use WFA for extension. KSW used by default. \n";
   cerr << "\t-p Maximum distance allowed between the paired-end reads [1000]\n";
+  cerr << "\t-d Disable embedding, extend all candidates from seeding (this mode is super slow, only for benchmark).\n";
 }
 
 void AccAlign::print_stats() {
@@ -1832,8 +1833,11 @@ void AccAlign::score_region(Read &r, char *qseq, Region &region,
                             Alignment &a) {
   unsigned qlen = strlen(r.seq);
 
-  // if the region has a embed distance of 0, then its an exact match
-  if (!extend_all && (region.embed_dist == 0 || region.embed_dist == 1 || !enable_extension)) {
+  if (!enable_extension){
+    region.score = qlen * SC_MCH;
+    r.mapq = get_mapq(r.best, r.secBest);
+  } else if (!extend_all && (region.embed_dist == 0 || region.embed_dist == 1)) {
+    // if the region has a embed distance of 0, then its an exact match
     if (region.embed_dist == 0)
       region.score = qlen * SC_MCH;
     if (region.embed_dist == 1)
@@ -1958,7 +1962,7 @@ void AccAlign::score_region(Read &r, char *qseq, Region &region,
 
 void AccAlign::save_region(Read &R, size_t rlen, Region &region,
                            Alignment &a) {
-  if (!region.embed_dist || region.embed_dist == 1) {
+  if (!enable_extension || !region.embed_dist || region.embed_dist == 1) {
     R.pos = region.rs;
     sprintf(R.cigar, "%uM", (unsigned) rlen);
     R.nm = 0;
@@ -1967,7 +1971,6 @@ void AccAlign::save_region(Read &R, size_t rlen, Region &region,
     int cigar_len = a.cigar_string.size();
     strncpy(R.cigar, a.cigar_string.c_str(), cigar_len);
     R.cigar[cigar_len] = '\0';
-//    rectify_cigar(R.cigar, strlen(R.cigar), R, region);
     R.nm = a.mismatches;
   }
 
@@ -1997,7 +2000,6 @@ void AccAlign::align_read(Read &R) {
 
   Alignment a;
   size_t rlen = strlen(R.seq);
-//  if (!extend_all)
   score_region(R, s, region, a);
   save_region(R, rlen, region, a);
 
