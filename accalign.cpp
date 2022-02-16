@@ -15,7 +15,7 @@ uint8_t code[256];
 bool enable_extension = true, enable_wfa_extension = false, extend_all = false;
 
 int g_ncpus = 1;
-float delTime = 0, alignTime = 0, mapqTime, keyvTime = 0, posvTime = 0, sortTime = 0;
+float delTime = 0, mapqTime = 0, keyvTime = 0, posvTime = 0, sortTime = 0;
 int8_t mat[25];
 
 void make_code(void) {
@@ -1070,7 +1070,7 @@ void AccAlign::map_read(Read &R) {
       char *s = R.fwd;
       Alignment a;
       score_region(R, s, region, a);
-      if (region.score > max_as) {
+      if (region.score >= max_as) {
         r = region;
         max_as = region.score;
       }
@@ -1080,7 +1080,7 @@ void AccAlign::map_read(Read &R) {
       char *s = R.rev;
       Alignment a;
       score_region(R, s, region, a);
-      if (region.score > max_as) {
+      if (region.score >= max_as) {
         r = region;
         strand = '-';
         max_as = region.score;
@@ -1200,11 +1200,11 @@ void AccAlign::extend_pair(Read &mate1, Read &mate2,
     assert(start != end);
     for (auto itr = start; itr != end; ++itr) {
       int sum_as = region.score + itr->score;
-      if (sum_as > best_threshold) {
+      if (sum_as >= best_threshold) {
         best_f1 = itr - candidate_regions_f1.begin();
         best_r2 = i;
         best_threshold = sum_as;
-      } else if (sum_as > next_threshold) {
+      } else if (sum_as >= next_threshold) {
         next_threshold = sum_as;
       }
     }
@@ -1223,6 +1223,7 @@ void AccAlign::map_paired_read(Read &mate1, Read &mate2) {
   auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
   parse_time += elapsed.count();
 
+  start = std::chrono::system_clock::now();
   vector<Region> region_f1, region_r1, region_f2, region_r2;
   unsigned best_f1 = 0, best_r1 = 0, best_f2 = 0, best_r2 = 0;
   unsigned next_f1 = 0, next_r1 = 0, next_f2 = 0, next_r2 = 0;
@@ -1240,6 +1241,9 @@ void AccAlign::map_paired_read(Read &mate1, Read &mate2) {
   pghole_wrapper_pair(mate1, mate2, region_f1, region_r1, region_f2, region_r2,
                       best_f1, best_r1, best_f2, best_r2, next_f1, next_r1, next_f2, next_r2,
                       flag_f1, flag_r1, flag_f2, flag_r2, has_f1r2, has_r1f2);
+  end = std::chrono::system_clock::now();
+  elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+  seeding_time += elapsed.count();
 
   if (!has_f1r2 && !has_r1f2) {
     mate1.strand = '*';
@@ -1258,7 +1262,7 @@ void AccAlign::map_paired_read(Read &mate1, Read &mate2) {
 
     // if there is no candidates, the strand will remain *
     int secmin_dist;
-    if (best_f1r2 >= best_r1f2) {
+    if (best_f1r2 > best_r1f2) {
       mark_for_extension(mate1, '+', region_f1[best_f1]);
       mark_for_extension(mate2, '-', region_r2[best_r2]);
       if (best_r1f2 > next_f1r2)
@@ -1414,7 +1418,7 @@ void AccAlign::print_paired_sam(Read &R, Read &R2) {
 
   auto end = std::chrono::system_clock::now();
   auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
-  sam_pre_time += elapsed.count();
+  sam_time += elapsed.count();
 }
 
 void AccAlign::snprintf_pair_sam(Read &R, string *s, Read &R2, string *s2) {
@@ -1722,42 +1726,34 @@ void AccAlign::align_wrapper(int tid, int soff, int eoff, Read *ptlread, Read *p
   if (!ptlread2) {
     // single-end read alignment
     string sams[eoff];
-    auto start = std::chrono::system_clock::now();
     tbb::task_scheduler_init init(g_ncpus);
     tbb::parallel_for(tbb::blocked_range<size_t>(soff, eoff), Tbb_aligner(ptlread, sams, this));
-    auto end = std::chrono::system_clock::now();
-    auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
-    alignTime += elapsed.count();
 
-    start = std::chrono::system_clock::now();
+    auto start = std::chrono::system_clock::now();
     for (int i = soff; i < eoff; i++) {
       out_sam(sams + i);
     }
-    end = std::chrono::system_clock::now();
-    elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+    auto end = std::chrono::system_clock::now();
+    auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
     sam_time += elapsed.count();
 
     dataQ->push(make_tuple(ptlread, (Read *) NULL));
-  } else {
-    string sams[2 * eoff];
-    auto start = std::chrono::system_clock::now();
-    tbb::task_scheduler_init init(g_ncpus);
-    tbb::parallel_for(tbb::blocked_range<size_t>(soff, eoff), Tbb_aligner_paired(ptlread, ptlread2, sams, this));
-
-    auto end = std::chrono::system_clock::now();
-    auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
-    alignTime += elapsed.count();
-
-    start = std::chrono::system_clock::now();
-    for (int i = soff; i < 2 * eoff; i++) {
-      out_sam(sams + i);
-    }
-    end = std::chrono::system_clock::now();
-    elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
-    sam_time += elapsed.count();
-
-    dataQ->push(make_tuple(ptlread, ptlread2));
   }
+//  else {
+//    string sams[2 * eoff];
+//    tbb::task_scheduler_init init(g_ncpus);
+//    tbb::parallel_for(tbb::blocked_range<size_t>(soff, eoff), Tbb_aligner_paired(ptlread, ptlread2, sams, this));
+//
+//    auto start = std::chrono::system_clock::now();
+//    for (int i = soff; i < 2 * eoff; i++) {
+//      out_sam(sams + i);
+//    }
+//    auto end = std::chrono::system_clock::now();
+//    auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+//    sam_time += elapsed.count();
+//
+//    dataQ->push(make_tuple(ptlread, ptlread2));
+//  }
 }
 
 static void ksw_gen_simple_mat(int m, int8_t *mat, int8_t a, int8_t b, int8_t sc_ambi) {
@@ -2282,37 +2278,48 @@ bool AccAlign::tbb_fastq(const char *F1, const char *F2) {
   cerr << "Reading fastq file " << F1 << ", " << F2 << "\n";
 
   // replace this broadcast node with source node
-  if (!is_paired) {
-    graph g;
-
-    source_node < Read * > input_node(g, [&](Read *&r) -> bool {
-      if (gzeof(in1) || (gzgetc(in1) == EOF))
-        return false;
-
-      r = new Read;
-      in1 >> *r;
-      if (!strlen(r->seq))
-        return false;
-
-      return true;
-    }, false);
-
-    int max_objects = 10000000;
-    limiter_node < Read * > lnode(g, max_objects);
-    function_node < Read * , Read * > map_node(g, unlimited, tbb_map(this));
-    function_node < Read * , Read * > align_node(g, unlimited, tbb_align(this));
-    function_node < Read * , continue_msg > score_node(g, 1, tbb_score(this));
-
-    make_edge(score_node, lnode.decrement);
-    make_edge(align_node, score_node);
-    make_edge(map_node, align_node);
-    make_edge(lnode, map_node);
-    make_edge(input_node, map_node);
-    input_node.activate();
-    g.wait_for_all();
-  } else {
+//  if (!is_paired) {
+//    graph g;
+//
+//    source_node < Read * > input_node(g, [&](Read *&r) -> bool {
+//      auto start = std::chrono::system_clock::now();
+//
+//      if (gzeof(in1) || (gzgetc(in1) == EOF))
+//        return false;
+//
+//      r = new Read;
+//      in1 >> *r;
+//
+//      auto end = std::chrono::system_clock::now();
+//      auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+//      input_io_time += elapsed.count();
+//
+//      if (!strlen(r->seq))
+//        return false;
+//
+//      return true;
+//
+//    }, false);
+//
+//    int max_objects = 10000000;
+//    limiter_node < Read * > lnode(g, max_objects);
+//    function_node < Read * , Read * > map_node(g, unlimited, tbb_map(this));
+//    function_node < Read * , Read * > align_node(g, unlimited, tbb_align(this));
+//    function_node < Read * , continue_msg > score_node(g, 1, tbb_score(this));
+//
+//    make_edge(score_node, lnode.decrement);
+//    make_edge(align_node, score_node);
+//    make_edge(map_node, align_node);
+//    make_edge(lnode, map_node);
+//    make_edge(input_node, map_node);
+//    input_node.activate();
+//    g.wait_for_all();
+//  } else {
+  if (is_paired){
     graph g;
     source_node<ReadPair> input_node(g, [&](ReadPair &rp) -> bool {
+      auto start = std::chrono::system_clock::now();
+
       bool end1 = gzgetc(in1) == EOF;
       bool end2 = gzgetc(in2) == EOF;
       if (gzeof(in1) || end1 || end2)
@@ -2329,6 +2336,10 @@ bool AccAlign::tbb_fastq(const char *F1, const char *F2) {
       if (!strlen(r2->seq))
         return false;
       get<1>(rp) = r2;
+
+      auto end = std::chrono::system_clock::now();
+      auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+      input_io_time += elapsed.count();
 
       return true;
     }, false);
