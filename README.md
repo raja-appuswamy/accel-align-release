@@ -55,6 +55,7 @@ Options:
    -x alignment-free.
    -w use WFA for extension. It's using KSW by default.
    -p the maximum distance allowed between the paired-end reads [1000].
+   -d disable embedding, extend all candidates from seeding (this mode is super slow, only for benchmark).
    Note: maximum read length and read name length supported are 512.
 ```
 

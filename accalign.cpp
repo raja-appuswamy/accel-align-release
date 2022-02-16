@@ -1070,7 +1070,7 @@ void AccAlign::map_read(Read &R) {
       char *s = R.fwd;
       Alignment a;
       score_region(R, s, region, a);
-      if (region.score > max_as) {
+      if (region.score >= max_as) {
         r = region;
         max_as = region.score;
       }
@@ -1080,7 +1080,7 @@ void AccAlign::map_read(Read &R) {
       char *s = R.rev;
       Alignment a;
       score_region(R, s, region, a);
-      if (region.score > max_as) {
+      if (region.score >= max_as) {
         r = region;
         strand = '-';
         max_as = region.score;
@@ -1200,11 +1200,11 @@ void AccAlign::extend_pair(Read &mate1, Read &mate2,
     assert(start != end);
     for (auto itr = start; itr != end; ++itr) {
       int sum_as = region.score + itr->score;
-      if (sum_as > best_threshold) {
+      if (sum_as >= best_threshold) {
         best_f1 = itr - candidate_regions_f1.begin();
         best_r2 = i;
         best_threshold = sum_as;
-      } else if (sum_as > next_threshold) {
+      } else if (sum_as >= next_threshold) {
         next_threshold = sum_as;
       }
     }
@@ -1262,7 +1262,7 @@ void AccAlign::map_paired_read(Read &mate1, Read &mate2) {
 
     // if there is no candidates, the strand will remain *
     int secmin_dist;
-    if (best_f1r2 >= best_r1f2) {
+    if (best_f1r2 > best_r1f2) {
       mark_for_extension(mate1, '+', region_f1[best_f1]);
       mark_for_extension(mate2, '-', region_r2[best_r2]);
       if (best_r1f2 > next_f1r2)
