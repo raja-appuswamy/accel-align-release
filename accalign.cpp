@@ -1833,7 +1833,7 @@ void AccAlign::score_region(Read &r, char *qseq, Region &region,
                             Alignment &a) {
   unsigned qlen = strlen(r.seq);
 
-  if (!enable_extension){
+  if (!enable_extension) {
     region.score = qlen * SC_MCH;
     r.mapq = get_mapq(r.best, r.secBest);
   } else if (!extend_all && (region.embed_dist == 0 || region.embed_dist == 1)) {
@@ -1960,6 +1960,29 @@ void AccAlign::score_region(Read &r, char *qseq, Region &region,
 
 }
 
+//determine chromo id
+int AccAlign::get_tid(Read &R) {
+  int tid = R.pos / (offset[1] - offset[0]);
+  if (R.pos >= offset[tid] && (tid == (int) name.size() - 1 || R.pos < offset[tid + 1])) {
+    return tid;
+  } else if (R.pos < offset[tid]) {
+    while (tid >= 0) {
+      if (R.pos >= offset[tid]) {
+        return tid;
+      }
+      --tid;
+    }
+  } else {
+    while (tid < (int) name.size()) {
+      if (R.pos < offset[tid + 1]) {
+        return tid;
+      }++tid;
+    }
+  }
+
+  return INT_MAX;
+}
+
 void AccAlign::save_region(Read &R, size_t rlen, Region &region,
                            Alignment &a) {
   if (!enable_extension || !region.embed_dist || region.embed_dist == 1) {
@@ -1973,19 +1996,19 @@ void AccAlign::save_region(Read &R, size_t rlen, Region &region,
     R.cigar[cigar_len] = '\0';
     R.nm = a.mismatches;
   }
+  R.as = region.score;
 
-  R.tid = 0;
-  for (size_t j = 0; j < name.size(); j++) {
-    if (offset[j + 1] > R.pos) {
-      R.tid = j;
-      break;
-    }
-  }
+  R.tid = get_tid(R);
+
+  if (R.pos + rlen/2 > offset[R.tid + 1]){
+    //reach the end of chromo, switch to next
+    R.pos = 1;
+    R.tid += 1;
+  } else
+    R.pos = R.pos - offset[R.tid] + 1;
+
   //cerr << "Saving region at pos " << R.pos << " as pos " << R.pos -
   //    offset[R.tid] + 1 << " for read " << R.name << endl;
-
-  R.pos = R.pos - offset[R.tid] + 1;
-  R.as = region.score;
 }
 
 void AccAlign::align_read(Read &R) {
@@ -2230,9 +2253,9 @@ struct tbb_align {
     accalign->align_read(*mate1);
     accalign->align_read(*mate2);
 
-    int mapq_pe = mate1->mapq > mate2->mapq? mate1->mapq : mate2->mapq;
-    if (mate1->mapq < mapq_pe) mate1->mapq = (int)(.2f * mate1->mapq + .8f * mapq_pe + .499f);
-    if (mate2->mapq < mapq_pe) mate2->mapq = (int)(.2f * mate2->mapq + .8f * mapq_pe + .499f);
+    int mapq_pe = mate1->mapq > mate2->mapq ? mate1->mapq : mate2->mapq;
+    if (mate1->mapq < mapq_pe) mate1->mapq = (int) (.2f * mate1->mapq + .8f * mapq_pe + .499f);
+    if (mate2->mapq < mapq_pe) mate2->mapq = (int) (.2f * mate2->mapq + .8f * mapq_pe + .499f);
 
     return p;
   }
@@ -2317,7 +2340,7 @@ bool AccAlign::tbb_fastq(const char *F1, const char *F2) {
 //    input_node.activate();
 //    g.wait_for_all();
 //  } else {
-  if (is_paired){
+  if (is_paired) {
     graph g;
     source_node<ReadPair> input_node(g, [&](ReadPair &rp) -> bool {
       auto start = std::chrono::system_clock::now();
