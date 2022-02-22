@@ -83,6 +83,7 @@ class AccAlign {
   void print_sam(Read &R);
   bool tbb_fastq(const char *F1, const char *F2);
   int get_mapq(int best, int secbest);
+  int get_tid(Read &R);
   AccAlign(Reference &r);
   ~AccAlign();
 };
