@@ -2000,7 +2000,7 @@ void AccAlign::save_region(Read &R, size_t rlen, Region &region,
 
   R.tid = get_tid(R);
 
-  if (R.pos + rlen/2 > offset[R.tid + 1]){
+  if (R.tid + 1 < (int) name.size() && R.pos + rlen/2 > offset[R.tid + 1]){
     //reach the end of chromo, switch to next
     R.pos = 1;
     R.tid += 1;
