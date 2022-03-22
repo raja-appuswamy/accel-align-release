@@ -2213,7 +2213,7 @@ AccAlign::AccAlign(Reference &r) :
   input_io_time = parse_time = 0;
   seeding_time = hit_count_time = 0;
   vpair_build_time = 0;
-  sw_time = sam_time = sam_pre_time = sam_out_time = 0;
+  swap_time = sw_time = sam_time = sam_pre_time = sam_out_time = 0;
   vpair_sort_count = 0;
 
   if (g_embed_file.size())
