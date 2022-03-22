@@ -2025,6 +2025,9 @@ void AccAlign::align_read(Read &R) {
   auto start = std::chrono::system_clock::now();
 
   if (R.strand == '*') {
+    R.tid = R.pos = R.mapq = R.nm = R.as = 0;
+    R.cigar[0] = '*';
+    R.cigar[1] = '\0';
     return;
   }
 
