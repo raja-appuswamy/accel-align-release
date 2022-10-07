@@ -1037,6 +1037,11 @@ int AccAlign::get_mapq(int best, int secBest) {
 
 void AccAlign::map_read(Read &R) {
 
+  if (strlen(R.seq) < kmer_len){
+    R.strand = '*';
+    return;
+  }
+
   auto start = std::chrono::system_clock::now();
   parse(R.seq, R.fwd, R.rev, R.rev_str);
   auto end = std::chrono::system_clock::now();
@@ -1216,6 +1221,12 @@ void AccAlign::extend_pair(Read &mate1, Read &mate2,
 }
 
 void AccAlign::map_paired_read(Read &mate1, Read &mate2) {
+
+  if (strlen(mate1.seq) < kmer_len || strlen(mate2.seq) < kmer_len){
+    mate1.strand = '*';
+    mate2.strand = '*';
+    return;
+  }
 
   auto start = std::chrono::system_clock::now();
   parse(mate1.seq, mate1.fwd, mate1.rev, mate1.rev_str);
@@ -1862,7 +1873,7 @@ void AccAlign::score_region(Read &r, char *qseq, Region &region,
 
     l = qlen - qe;
     l += l * SC_MCH + END_BONUS > GAPO ? (l * SC_MCH + END_BONUS - GAPO) / GAPE : 0;
-    re0 = re + l;
+    re0 = re + l < offset.back() ? re + l: offset.back();
 
     //left extension
     if (qs > 0 && rs > 0) {
@@ -1887,7 +1898,6 @@ void AccAlign::score_region(Read &r, char *qseq, Region &region,
       mm_seq_rev(qs - qs0, qseq);
       free(ez_l.cigar);
     }
-
 
     // matched seed
     uint32_t cigar_m[] = {kmer_len << 4};
