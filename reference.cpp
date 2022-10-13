@@ -124,8 +124,13 @@ Reference::Reference(const char *F) {
         name.push_back(parsed[0]);
         offset.push_back(ref_size);
       } else {
-        ref += buf;
-        ref_size += buf.size();
+        if (isspace(buf[buf.size()-1])) { // isspace(): \t, \n, \v, \f, \r
+          ref += buf.substr(0, buf.size()-1);
+          ref_size += buf.size() - 1;
+        } else {
+          ref += buf;
+          ref_size += buf.size();
+        }
       }
     }
 
