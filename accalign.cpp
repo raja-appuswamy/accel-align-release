@@ -12,7 +12,7 @@ unsigned pairdis = 1000;
 string g_out, g_batch_file, g_embed_file;
 char rcsymbol[6] = "TGCAN";
 uint8_t code[256];
-bool enable_extension = true, enable_wfa_extension = false, extend_all = false;
+bool enable_extension = true, enable_wfa_extension = false, extend_all = false, fuzzy_pos = false;
 
 int g_ncpus = 1;
 float delTime = 0, mapqTime = 0, keyvTime = 0, posvTime = 0, sortTime = 0;
@@ -88,6 +88,7 @@ void print_usage() {
   cerr << "\t-w Use WFA for extension. KSW used by default. \n";
   cerr << "\t-p Maximum distance allowed between the paired-end reads [1000]\n";
   cerr << "\t-d Disable embedding, extend all candidates from seeding (this mode is super slow, only for benchmark).\n";
+  cerr << "\t-f Report fuzzy position approximately. This disables the rectification of normalized start position by shifted embeddings. \n";
 }
 
 void AccAlign::print_stats() {
@@ -370,7 +371,7 @@ void AccAlign::mark_for_extension(Read &read, char S, Region &cregion) {
 
   char *strand = S == '+' ? read.fwd : read.rev;
 
-  if (cregion.embed_dist && !enable_extension)
+  if (cregion.embed_dist && !enable_extension && !fuzzy_pos)
     rectify_start_pos(strand, cregion, rlen);
 
   read.best_region = cregion;
@@ -1859,6 +1860,7 @@ static void append_cigar(Extension *&rp, uint32_t n_cigar, uint32_t *cigar) {
 void AccAlign::score_region(Read &r, char *qseq, Region &region,
                             Alignment &a) {
   unsigned qlen = strlen(r.seq);
+  r.tid = get_tid(region.rs + region.qe - 1); // end pos of the match seed
 
   if (!enable_extension) {
     region.score = qlen * SC_MCH;
@@ -1881,19 +1883,27 @@ void AccAlign::score_region(Read &r, char *qseq, Region &region,
     qs = region.qs;
     qe = region.qe;
     assert(qe - qs == match_len);
-    qe = qs + kmer_len;
     rs = region.rs + qs;
     re = region.rs + qe;
+    if (rs < offset[r.tid] & re > offset[r.tid]){ // the match seed cross two oligos
+      qs += offset[r.tid] - rs;
+      match_len -= offset[r.tid] - rs;
+      rs = region.rs + qs;
+    }
+
     l = qs;
     l += l * SC_MCH + END_BONUS > GAPO ? (l * SC_MCH + END_BONUS - GAPO) / GAPE : 0;
     qs0 = 0, qe0 = qlen;
-    rs0 = rs > l ? rs - l : 0;
+    rs0 = rs > l + offset[r.tid] ? rs - l : offset[r.tid];
 
     l = qlen - qe;
     l += l * SC_MCH + END_BONUS > GAPO ? (l * SC_MCH + END_BONUS - GAPO) / GAPE : 0;
-    re0 = re + l < offset.back() ? re + l: offset.back();
+    uint32_t back_offset = r.tid < offset.size() - 1? offset[r.tid+1] : offset.back();
+    re0 = re + l < back_offset ? re + l: back_offset;
 
     //left extension
+    assert(qs >= qs0);
+    assert(rs >= rs0);
     if (qs > 0 && rs > 0) {
       ksw_extz_t ez_l;
       memset(&ez_l, 0, sizeof(ksw_extz_t));
@@ -1925,7 +1935,10 @@ void AccAlign::score_region(Read &r, char *qseq, Region &region,
     }
 
     // right extension
-    if (qe < qe0 && re < re0) {
+    assert(re <= re0);
+    if (qe < qe0 && re == re0){
+      endclip = qe0 - qe; //happen to reach end of last chromo, can't do right extension so need endclip
+    } else if(qe < qe0 && re < re0) {
       ksw_extz_t ez_r;
       memset(&ez_r, 0, sizeof(ksw_extz_t));
       const uint8_t *_tseq = reinterpret_cast<const uint8_t *>(ref.c_str() + re);
@@ -1989,26 +2002,29 @@ void AccAlign::score_region(Read &r, char *qseq, Region &region,
 }
 
 //determine chromo id
-int AccAlign::get_tid(Read &R) {
-  int tid = R.pos / (offset[1] - offset[0]);
-  if (R.pos >= offset[tid] && (tid == (int) name.size() - 1 || R.pos < offset[tid + 1])) {
+int AccAlign::get_tid(uint32_t pos) {
+  int tid = pos / (offset[1] - offset[0]);
+  if (pos >= offset[tid] && (tid == (int) name.size() - 1 || pos < offset[tid + 1])) {
     return tid;
-  } else if (R.pos < offset[tid]) {
+  } else if (pos < offset[tid]) {
     while (tid >= 0) {
-      if (R.pos >= offset[tid]) {
+      if (pos >= offset[tid]) {
         return tid;
       }
       --tid;
     }
+    return 0; // return 0, if pos too small, should never be reached
   } else {
     while (tid < (int) name.size()) {
-      if (R.pos < offset[tid + 1]) {
+      if (pos < offset[tid + 1]) {
         return tid;
-      }++tid;
+      }
+      ++tid;
     }
+    return name.size()-1; // return last tid, if pos too big
   }
 
-  return INT_MAX;
+//  return INT_MAX;
 }
 
 void AccAlign::save_region(Read &R, size_t rlen, Region &region,
@@ -2026,14 +2042,13 @@ void AccAlign::save_region(Read &R, size_t rlen, Region &region,
   }
   R.as = region.score;
 
-  R.tid = get_tid(R);
-
   if (R.tid + 1 < (int) name.size() && R.pos + rlen/2 > offset[R.tid + 1]){
     //reach the end of chromo, switch to next
     R.pos = 1;
     R.tid += 1;
-  } else
-    R.pos = R.pos - offset[R.tid] + 1;
+  } else {
+    R.pos = R.pos + 1 < offset[R.tid] ? 0 : R.pos - offset[R.tid] + 1;
+  }
 
   //cerr << "Saving region at pos " << R.pos << " as pos " << R.pos -
   //    offset[R.tid] + 1 << " for read " << R.name << endl;
@@ -2046,7 +2061,7 @@ void AccAlign::align_read(Read &R) {
 
   if (R.strand == '*') {
     if (R.force_align){
-      R.tid = get_tid(R);
+      R.tid = get_tid(R.pos);
 
       if (R.tid == INT_MAX) { //out of the largest pos
         R.pos = offset.back() - offset[offset.size() - 2] - rlen;
@@ -2486,6 +2501,10 @@ int main(int ac, char **av) {
         extend_all = true;
         opn += 1;
         flag = true;
+      } else if (av[opn][1] == 'f') {
+        fuzzy_pos = true;
+        opn += 1;
+        flag = true;
       } else {
         print_usage();
       }
@@ -2540,3 +2559,5 @@ int main(int ac, char **av) {
 
   return 0;
 }
+
+
