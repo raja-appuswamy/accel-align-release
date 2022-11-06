@@ -482,14 +482,14 @@ void AccAlign::pigeonhole_query_topcov(char *Q,
       // otherwise, check if last min element's coverage was high enough to make it a candidate region
 
       if (min_pos == last_pos) {
-        r.matched_intervals.push_back(last_qs);
+        r.matched_intervals.push_back(Interval{last_qs, last_qs + kmer_len});
         last_cov++;
       } else {
         if (nprocessed != 0) {
           r.cov = last_cov;
           r.rs = last_pos;
-          r.matched_intervals.push_back(last_qs);
-          r.qs = r.matched_intervals[0]; //the first match seed, so left extension could be accurate
+          r.matched_intervals.push_back(Interval{last_qs, last_qs + kmer_len});
+          r.qs = r.matched_intervals[0].s; //the first match seed, so left extension could be accurate
           r.qe = r.qs + kmer_len;
 
           if (last_cov > max_cov)
@@ -527,8 +527,8 @@ void AccAlign::pigeonhole_query_topcov(char *Q,
   if (last_pos != MAX_POS) {
     r.cov = last_cov;
     r.rs = last_pos;
-    r.matched_intervals.push_back(last_qs);
-    r.qs = r.matched_intervals[0]; //the first match seed, so left extension could be accurate
+    r.matched_intervals.push_back(Interval{last_qs, last_qs + kmer_len});
+    r.qs = r.matched_intervals[0].s; //the first match seed, so left extension could be accurate
     r.qe = r.qs + kmer_len;
 
     if (last_cov > max_cov)
@@ -646,8 +646,8 @@ void AccAlign::pigeonhole_query_sort(char *Q,
         r.cov = last_cov;
         r.rs = last_pos;
         for (unsigned i = nprocessed - last_cov; i < nprocessed; i++)
-          r.matched_intervals.push_back(regions[i].qs);
-        r.qs = r.matched_intervals[0]; //the first match seed, so left extension could be accurate
+          r.matched_intervals.push_back(Interval{regions[i].qs, regions[i].qs + kmer_len});
+        r.qs = r.matched_intervals[0].s; //the first match seed, so left extension could be accurate
         r.qe = r.qs + kmer_len;
 
         assert(r.rs < MAX_POS);
@@ -671,8 +671,8 @@ void AccAlign::pigeonhole_query_sort(char *Q,
     r.cov = last_cov;
     r.rs = last_pos;
     for (unsigned i = nprocessed - last_cov; i < nprocessed; i++)
-      r.matched_intervals.push_back(regions[i].qs);
-    r.qs = r.matched_intervals[0]; //the first match seed, so left extension could be accurate
+      r.matched_intervals.push_back(Interval{regions[i].qs, regions[i].qs + kmer_len});
+    r.qs = r.matched_intervals[0].s; //the first match seed, so left extension could be accurate
     r.qe = r.qs + kmer_len;
     assert(r.rs < MAX_POS);
 
@@ -819,14 +819,14 @@ void AccAlign::pigeonhole_query(char *Q,
       // if previous min element was same as current one, increment coverage.
       // otherwise, check if last min element's coverage was high enough to make it a candidate region
       if (min_pos == last_pos) {
-        r.matched_intervals.push_back(last_qs);
+        r.matched_intervals.push_back(Interval{last_qs, last_qs + kmer_len});
         last_cov++;
       } else {
         if (last_cov >= err_threshold) {
           r.cov = last_cov;
           r.rs = last_pos;
-          r.matched_intervals.push_back(last_qs);
-          r.qs = r.matched_intervals[0]; //let it be the first match seed, so the left extension could be accurate
+          r.matched_intervals.push_back(Interval{last_qs, last_qs + kmer_len});
+          r.qs = r.matched_intervals[0].s; //let it be the first match seed, so the left extension could be accurate
           r.qe = r.qs + kmer_len;
 
           if (last_cov >= max_cov) {
@@ -862,8 +862,8 @@ void AccAlign::pigeonhole_query(char *Q,
     if (last_cov >= err_threshold) {
       r.cov = last_cov;
       r.rs = last_pos;
-      r.matched_intervals.push_back(last_qs);
-      r.qs = r.matched_intervals[0]; //let it be the first match seed, so the left extension could be accurate
+      r.matched_intervals.push_back(Interval{last_qs, last_qs + kmer_len});
+      r.qs = r.matched_intervals[0].s; //let it be the first match seed, so the left extension could be accurate
       r.qe = r.qs + kmer_len;
 
       if (last_cov >= max_cov) {
@@ -1055,7 +1055,7 @@ void AccAlign::map_read(Read &R) {
   // lsh. If something comes out, we are done.
   // XXX: On experimentation, it was found that using pigeonhole filtering
   // produces wrong results and invalid mappings when errors are too large.
-  unsigned fbest, rbest;
+  unsigned fbest = 0, rbest = 0;
   pghole_wrapper(R, fcandidate_regions, rcandidate_regions, fbest, rbest);
   unsigned nfregions = fcandidate_regions.size();
   unsigned nrregions = rcandidate_regions.size();
@@ -1877,8 +1877,10 @@ void AccAlign::score_region(Read &r, char *qseq, Region &region,
 
     uint32_t qs, qe, qs0, qe0, rs, re, rs0, re0, l;
     uint32_t beginclip = 0, endclip = 0;
+    uint32_t match_len = region.matched_intervals[0].e - region.matched_intervals[0].s;
     qs = region.qs;
-    assert(region.qs == region.matched_intervals[0]);
+    qe = region.qe;
+    assert(qe - qs == match_len);
     qe = qs + kmer_len;
     rs = region.rs + qs;
     re = region.rs + qe;
@@ -1916,9 +1918,9 @@ void AccAlign::score_region(Read &r, char *qseq, Region &region,
     }
 
     // matched seed
-    uint32_t cigar_m[] = {kmer_len << 4};
+    uint32_t cigar_m[] = {match_len << 4};
     append_cigar(extension, 1, cigar_m);
-    for (unsigned j = 0; j < kmer_len; ++j) {
+    for (unsigned j = 0; j < match_len; ++j) {
       extension->dp_score += qseq[qs + j] == ref.c_str()[raw_rs + qs + j] ? SC_MCH : -SC_MIS;
     }
 

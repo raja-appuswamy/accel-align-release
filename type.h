@@ -18,7 +18,7 @@ struct Region {
   uint16_t cov;
   uint16_t embed_dist;
   int score;
-  std::vector<uint32_t> matched_intervals;  // list of start pos of matched seeds in read that indicate to this region
+  std::vector<Interval> matched_intervals;  // list of start pos of matched seeds in read that indicate to this region
 
   bool operator()(Region &X, Region &Y) {
     if (X.rs == Y.rs)

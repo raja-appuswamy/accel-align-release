@@ -4,7 +4,7 @@
 #define CGK2_EMBED 1
 
 int Embedding::cgk2_unmatched(const char *r, const char *ref,
-                              const vector<uint32_t> &mch,
+                              const vector<Interval> &mch,
                               const unsigned rlen,
                               const unsigned kmer_step,
                               const int threshold,
@@ -16,8 +16,8 @@ int Embedding::cgk2_unmatched(const char *r, const char *ref,
   // embed ref: cadidate pos
   unsigned i = 0, m_idx = 0, j = 0;
   while (i < rlen) {
-    if (m_idx < mch.size() && i == mch[m_idx]) {
-      i += kmer_step;
+    if (m_idx < mch.size() && i == mch[m_idx].s) {
+      i = mch[m_idx].e;
       m_idx++;
     } else {
       uint8_t s = ref[i];
@@ -42,8 +42,8 @@ int Embedding::cgk2_unmatched(const char *r, const char *ref,
   //reset idx, embed read and cal mismatch
   i = j = m_idx = 0;
   while (i < rlen) {
-    if (m_idx < mch.size() && i == mch[m_idx]) {
-      i += kmer_step;
+    if (m_idx < mch.size() && i == mch[m_idx].s) {
+      i = mch[m_idx].e;
       m_idx++;
     } else {
       uint8_t s = r[i];
@@ -195,6 +195,15 @@ int Embedding::embedstr(const char **oridata, unsigned rlen, int threshold, int 
 #endif
 }
 
+int hamdist(const char *r, const char *ref, int rlen){
+  int cnt = 0;
+  for (int i = 0; i < rlen; ++i){
+    if (r[i] != ref[i])
+      ++cnt;
+  }
+  return cnt;
+}
+
 void Embedding::embed_unmatch_iter(vector<Region> &candidate_regions, const char *ptr_ref, const char *r,
                                    const unsigned rlen, const unsigned kmer_step, int &best_threshold,
                                    int &next_threshold, unsigned &best_idx, unsigned &next_idx) {
@@ -212,8 +221,11 @@ void Embedding::embed_unmatch_iter(vector<Region> &candidate_regions, const char
         // if we already have 2 exact match/or dist 1 (one for best, one for second best for mapq), look for exact matches only
         nmismatch = (memcmp(r, ptr_ref + region.rs, rlen) == 0 ? 0 : elen);
       } else {
-        nmismatch = cgk2_unmatched(r, ptr_ref + region.rs, region.matched_intervals,
-                                   rlen, kmer_step, next_threshold, strid);
+        nmismatch = hamdist(r, ptr_ref + region.rs, rlen);
+
+        if (nmismatch > 2)
+          nmismatch = cgk2_unmatched(r, ptr_ref + region.rs, region.matched_intervals,
+                                     rlen, kmer_step, next_threshold, strid);
       }
       region.embed_dist = region.embed_dist < nmismatch ? region.embed_dist : nmismatch;
 
@@ -265,7 +277,10 @@ void Embedding::embed_unmatch(vector<Region> &candidate_regions,
     region.embed_dist = elen;
 
     for (unsigned strid = 0; strid < NUM_STR; ++strid) {
-      nmismatch = cgk2_unmatched(r, ptr_ref + region.rs, region.matched_intervals, rlen, kmer_step, elen, strid);
+      nmismatch = hamdist(r, ptr_ref + region.rs, rlen);
+
+      if (nmismatch > 2)
+        nmismatch = cgk2_unmatched(r, ptr_ref + region.rs, region.matched_intervals, rlen, kmer_step, elen, strid);
       region.embed_dist = region.embed_dist < nmismatch ? region.embed_dist : nmismatch;
 
       // if embed_dist is 0/1, no need to embed again
@@ -320,8 +335,11 @@ void Embedding::embed_unmatch_pair(Read &mate1, Read &mate2,
         // if we already have 2 exact match/or dist 1 (one for best, one for second best for mapq), look for exact matches only
         nmismatch = (memcmp(r, ptr_ref + region.rs, rlen) == 0 ? 0 : elen);
       } else {
-        nmismatch = cgk2_unmatched(r, ptr_ref + region.rs, region.matched_intervals, rlen, kmer_step,
-                                   min(int(region.embed_dist), next_threshold), strid);
+        nmismatch = hamdist(r, ptr_ref + region.rs, rlen);
+
+        if (nmismatch > 2)
+          nmismatch = cgk2_unmatched(r, ptr_ref + region.rs, region.matched_intervals, rlen, kmer_step,
+                                     min(int(region.embed_dist), next_threshold), strid);
       }
       region.embed_dist = region.embed_dist < nmismatch ? region.embed_dist : nmismatch;
 

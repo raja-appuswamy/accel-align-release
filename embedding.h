@@ -36,7 +36,7 @@ class Embedding {
                 int strid, char *embeddedQ);
   int cgk2_unmatched(const char *ref,
                      const char *r,
-                     const vector<uint32_t> &mch,
+                     const vector<Interval> &mch,
                      const unsigned rlen,
                      const unsigned kmer_len,
                      const int threshold,
