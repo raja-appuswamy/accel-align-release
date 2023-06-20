@@ -16,6 +16,7 @@ bool enable_extension = true, enable_wfa_extension = false, extend_all = false, 
 
 int g_ncpus = 1;
 float delTime = 0, mapqTime = 0, keyvTime = 0, posvTime = 0, sortTime = 0;
+string cmdStr;
 int8_t mat[25];
 
 void make_code(void) {
@@ -1885,7 +1886,7 @@ void AccAlign::score_region(Read &r, char *qseq, Region &region,
     assert(qe - qs == match_len);
     rs = region.rs + qs;
     re = region.rs + qe;
-    if (rs < offset[r.tid] & re > offset[r.tid]){ // the match seed cross two oligos
+    if ((rs < offset[r.tid]) & (re > offset[r.tid])){ // the match seed cross two oligos
       qs += offset[r.tid] - rs;
       match_len -= offset[r.tid] - rs;
       rs = region.rs + qs;
@@ -1894,12 +1895,13 @@ void AccAlign::score_region(Read &r, char *qseq, Region &region,
     l = qs;
     l += l * SC_MCH + END_BONUS > GAPO ? (l * SC_MCH + END_BONUS - GAPO) / GAPE : 0;
     qs0 = 0, qe0 = qlen;
-    rs0 = rs > l + offset[r.tid] ? rs - l : offset[r.tid];
+    uint32_t chromo_s = offset[r.tid];
+    rs0 = rs > (l + chromo_s) ? rs - l : chromo_s; // start from the beginning of this chromo
 
     l = qlen - qe;
     l += l * SC_MCH + END_BONUS > GAPO ? (l * SC_MCH + END_BONUS - GAPO) / GAPE : 0;
-    uint32_t back_offset = r.tid < offset.size() - 1? offset[r.tid+1] : offset.back();
-    re0 = re + l < back_offset ? re + l: back_offset;
+    uint32_t chromo_e = r.tid + 1 < int(offset.size()) ? offset[r.tid + 1]: offset.back();
+    re0 = re + l < chromo_e ? re + l: chromo_e; // end at the end of this chromo
 
     //left extension
     assert(qs >= qs0);
@@ -2003,23 +2005,25 @@ void AccAlign::score_region(Read &r, char *qseq, Region &region,
 
 //determine chromo id
 int AccAlign::get_tid(uint32_t pos) {
-  int tid = pos / (offset[1] - offset[0]);
-  if (pos >= offset[tid] && (tid == (int) name.size() - 1 || pos < offset[tid + 1])) {
-    return tid;
-  } else if (pos < offset[tid]) {
-    while (tid >= 0) {
-      if (pos >= offset[tid]) {
+  if (pos >= offset.back())
+    return INT_MAX;
+
+  unsigned tid = pos / (offset.back() - offset[0]) * (offset.size() - 1); // the avg chrome length
+
+  if (tid >= name.size())
+    tid = name.size() - 1; //out of tid range
+
+  if (pos >= offset[tid]) {
+    while (tid < name.size()) {
+      if (pos < offset[tid + 1])
         return tid;
-      }
-      --tid;
-    }
-    return 0; // return 0, if pos too small, should never be reached
-  } else {
-    while (tid < (int) name.size()) {
-      if (pos < offset[tid + 1]) {
-        return tid;
-      }
       ++tid;
+    }
+  } else { //(R.pos < offset[tid])
+    while (tid >= 0) {
+      if (pos >= offset[tid])
+        return tid;
+      --tid;
     }
     return name.size()-1; // return last tid, if pos too big
   }
@@ -2029,18 +2033,18 @@ int AccAlign::get_tid(uint32_t pos) {
 
 void AccAlign::save_region(Read &R, size_t rlen, Region &region,
                            Alignment &a) {
+  R.pos = region.rs;
+  R.as = region.score;
+
   if (!enable_extension || !region.embed_dist || region.embed_dist == 1) {
-    R.pos = region.rs;
     sprintf(R.cigar, "%uM", (unsigned) rlen);
     R.nm = 0;
   } else {
-    R.pos = region.rs;
     int cigar_len = a.cigar_string.size();
     strncpy(R.cigar, a.cigar_string.c_str(), cigar_len);
     R.cigar[cigar_len] = '\0';
     R.nm = a.mismatches;
   }
-  R.as = region.score;
 
   if (R.tid + 1 < (int) name.size() && R.pos + rlen/2 > offset[R.tid + 1]){
     //reach the end of chromo, switch to next
@@ -2229,7 +2233,7 @@ void AccAlign::sam_header(void) {
   so << "@HD\tVN:1.3\tSO:coordinate\n";
   for (size_t i = 0; i < name.size(); i++)
     so << "@SQ\tSN:" << name[i] << '\t' << "LN:" << offset[i + 1] - offset[i] << '\n';
-  so << "@PG\tID:AccAlign\tPN:AccAlign\tVN:0.0\n";
+  so << "@PG\tID:AccAlign\tPN:AccAlign\tVN:0.0\tCL:accalign " << cmdStr << '\n';
 
   if (sam_name.length())
     sam_stream << so.str();
@@ -2518,6 +2522,11 @@ int main(int ac, char **av) {
 
   cerr << "Using " << g_ncpus << " cpus " << endl;
   cerr << "Using kmer length " << kmer_len << " and step size " << kmer_step << endl;
+
+  stringstream tmp;
+  for (int i = 1; i < ac; ++i)
+    tmp << string(av[i]) << " ";
+  cmdStr = tmp.str();
 
   tbb::task_scheduler_init init(g_ncpus);
   make_code();

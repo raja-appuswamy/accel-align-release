@@ -100,12 +100,15 @@ path-to-ref/ref.fna input-path/read.fastq
 ``` 
 
 ### Citing Accel-align ###
-If you use Accel-align in your work, please cite https://doi.org/10.1186/s12859-021-04162-z and https://doi.org/10.1109/IPDPSW55747.2022.00036 :
+
+If you use Accel-align in your work, please cite https://doi.org/10.1186/s12859-021-04162-z and 
+https://doi.org/10.1109/IPDPSW55747.2022.00036:
 
 > Yan, Y., Chaturvedi, N. & Appuswamy, R. 
 > Accel-Align: a fast sequence mapper and aligner based on the seed–embed–extend method. 
 > BMC Bioinformatics 22, 257 (2021).
 
-> Y. Yan, N. Chaturvedi and R. Appuswamy.
-> Optimizing the Accuracy of Randomized Embedding for Sequence Alignment.
-> 2022 IEEE International Parallel and Distributed Processing Symposium Workshops (IPDPSW), 2022, pp. 144-151.
+ 
+> Yan Y, Chaturvedi N, Appuswamy R. 
+> Optimizing the accuracy of randomized embedding for sequence alignment[C].
+> 2022 IEEE International Parallel and Distributed Processing Symposium Workshops (IPDPSW). IEEE, 2022: 144-151.
