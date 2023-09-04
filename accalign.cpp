@@ -12,10 +12,11 @@ unsigned pairdis = 1000;
 string g_out, g_batch_file, g_embed_file;
 char rcsymbol[6] = "TGCAN";
 uint8_t code[256];
-bool enable_extension = true, enable_wfa_extension = false, extend_all = false;
+bool enable_extension = true, enable_wfa_extension = false, extend_all = false, fuzzy_pos = false;
 
 int g_ncpus = 1;
 float delTime = 0, mapqTime = 0, keyvTime = 0, posvTime = 0, sortTime = 0;
+string cmdStr;
 int8_t mat[25];
 
 void make_code(void) {
@@ -88,6 +89,7 @@ void print_usage() {
   cerr << "\t-w Use WFA for extension. KSW used by default. \n";
   cerr << "\t-p Maximum distance allowed between the paired-end reads [1000]\n";
   cerr << "\t-d Disable embedding, extend all candidates from seeding (this mode is super slow, only for benchmark).\n";
+  cerr << "\t-f Report fuzzy position approximately. This disables the rectification of normalized start position by shifted embeddings. \n";
 }
 
 void AccAlign::print_stats() {
@@ -370,7 +372,7 @@ void AccAlign::mark_for_extension(Read &read, char S, Region &cregion) {
 
   char *strand = S == '+' ? read.fwd : read.rev;
 
-  if (cregion.embed_dist && !enable_extension)
+  if (cregion.embed_dist && !enable_extension && !fuzzy_pos)
     rectify_start_pos(strand, cregion, rlen);
 
   read.best_region = cregion;
@@ -482,14 +484,14 @@ void AccAlign::pigeonhole_query_topcov(char *Q,
       // otherwise, check if last min element's coverage was high enough to make it a candidate region
 
       if (min_pos == last_pos) {
-        r.matched_intervals.push_back(last_qs);
+        r.matched_intervals.push_back(Interval{last_qs, last_qs + kmer_len});
         last_cov++;
       } else {
         if (nprocessed != 0) {
           r.cov = last_cov;
           r.rs = last_pos;
-          r.matched_intervals.push_back(last_qs);
-          r.qs = r.matched_intervals[0]; //the first match seed, so left extension could be accurate
+          r.matched_intervals.push_back(Interval{last_qs, last_qs + kmer_len});
+          r.qs = r.matched_intervals[0].s; //the first match seed, so left extension could be accurate
           r.qe = r.qs + kmer_len;
 
           if (last_cov > max_cov)
@@ -527,8 +529,8 @@ void AccAlign::pigeonhole_query_topcov(char *Q,
   if (last_pos != MAX_POS) {
     r.cov = last_cov;
     r.rs = last_pos;
-    r.matched_intervals.push_back(last_qs);
-    r.qs = r.matched_intervals[0]; //the first match seed, so left extension could be accurate
+    r.matched_intervals.push_back(Interval{last_qs, last_qs + kmer_len});
+    r.qs = r.matched_intervals[0].s; //the first match seed, so left extension could be accurate
     r.qe = r.qs + kmer_len;
 
     if (last_cov > max_cov)
@@ -646,8 +648,8 @@ void AccAlign::pigeonhole_query_sort(char *Q,
         r.cov = last_cov;
         r.rs = last_pos;
         for (unsigned i = nprocessed - last_cov; i < nprocessed; i++)
-          r.matched_intervals.push_back(regions[i].qs);
-        r.qs = r.matched_intervals[0]; //the first match seed, so left extension could be accurate
+          r.matched_intervals.push_back(Interval{regions[i].qs, regions[i].qs + kmer_len});
+        r.qs = r.matched_intervals[0].s; //the first match seed, so left extension could be accurate
         r.qe = r.qs + kmer_len;
 
         assert(r.rs < MAX_POS);
@@ -671,8 +673,8 @@ void AccAlign::pigeonhole_query_sort(char *Q,
     r.cov = last_cov;
     r.rs = last_pos;
     for (unsigned i = nprocessed - last_cov; i < nprocessed; i++)
-      r.matched_intervals.push_back(regions[i].qs);
-    r.qs = r.matched_intervals[0]; //the first match seed, so left extension could be accurate
+      r.matched_intervals.push_back(Interval{regions[i].qs, regions[i].qs + kmer_len});
+    r.qs = r.matched_intervals[0].s; //the first match seed, so left extension could be accurate
     r.qe = r.qs + kmer_len;
     assert(r.rs < MAX_POS);
 
@@ -819,14 +821,14 @@ void AccAlign::pigeonhole_query(char *Q,
       // if previous min element was same as current one, increment coverage.
       // otherwise, check if last min element's coverage was high enough to make it a candidate region
       if (min_pos == last_pos) {
-        r.matched_intervals.push_back(last_qs);
+        r.matched_intervals.push_back(Interval{last_qs, last_qs + kmer_len});
         last_cov++;
       } else {
         if (last_cov >= err_threshold) {
           r.cov = last_cov;
           r.rs = last_pos;
-          r.matched_intervals.push_back(last_qs);
-          r.qs = r.matched_intervals[0]; //let it be the first match seed, so the left extension could be accurate
+          r.matched_intervals.push_back(Interval{last_qs, last_qs + kmer_len});
+          r.qs = r.matched_intervals[0].s; //let it be the first match seed, so the left extension could be accurate
           r.qe = r.qs + kmer_len;
 
           if (last_cov >= max_cov) {
@@ -862,8 +864,8 @@ void AccAlign::pigeonhole_query(char *Q,
     if (last_cov >= err_threshold) {
       r.cov = last_cov;
       r.rs = last_pos;
-      r.matched_intervals.push_back(last_qs);
-      r.qs = r.matched_intervals[0]; //let it be the first match seed, so the left extension could be accurate
+      r.matched_intervals.push_back(Interval{last_qs, last_qs + kmer_len});
+      r.qs = r.matched_intervals[0].s; //let it be the first match seed, so the left extension could be accurate
       r.qe = r.qs + kmer_len;
 
       if (last_cov >= max_cov) {
@@ -1055,7 +1057,7 @@ void AccAlign::map_read(Read &R) {
   // lsh. If something comes out, we are done.
   // XXX: On experimentation, it was found that using pigeonhole filtering
   // produces wrong results and invalid mappings when errors are too large.
-  unsigned fbest, rbest;
+  unsigned fbest = 0, rbest = 0;
   pghole_wrapper(R, fcandidate_regions, rcandidate_regions, fbest, rbest);
   unsigned nfregions = fcandidate_regions.size();
   unsigned nrregions = rcandidate_regions.size();
@@ -1258,8 +1260,20 @@ void AccAlign::map_paired_read(Read &mate1, Read &mate2) {
   seeding_time += elapsed.count();
 
   if (!has_f1r2 && !has_r1f2) {
-    mate1.strand = '*';
-    mate2.strand = '*';
+    map_read(mate1);
+    map_read(mate2);
+    if (mate1.strand == '*' && mate2.strand == '*')
+      return;
+    else if ((mate1.strand != '*' && mate2.strand != '*' && mate1.best_region.embed_dist < mate2.best_region.embed_dist)
+        || mate2.strand == '*'){
+      mate2.strand = '*';
+      mate2.force_align = true;
+      mate2.pos = mate1.best_region.rs;
+    }else{
+      mate1.strand = '*';
+      mate1.force_align = true;
+      mate1.pos = mate2.best_region.rs;
+    }
     return;
   }
 
@@ -1325,6 +1339,10 @@ void AccAlign::map_paired_read(Read &mate1, Read &mate2) {
   mapqTime += elapsed.count();
 }
 
+inline bool unfill(Read &R) {
+  return  R.strand == '*' && (!R.force_align);
+}
+
 void AccAlign::print_paired_sam(Read &R, Read &R2) {
   auto start = std::chrono::system_clock::now();
 
@@ -1350,10 +1368,10 @@ void AccAlign::print_paired_sam(Read &R, Read &R2) {
   flag |= 0x40;
   ss << flag;
 
-  ss << '\t' << (strand1 == '*' ? "*" : name[R.tid]);
-  ss << '\t' << (strand1 == '*' ? 0 : R.pos);
-  ss << '\t' << (strand1 == '*' ? 0 : (int) R.mapq);
-  ss << '\t' << (strand1 == '*' ? "*" : R.cigar) << '\t';
+  ss << '\t' << (unfill(R) ? "*" : name[R.tid]);
+  ss << '\t' << (unfill(R) ? 0 : R.pos);
+  ss << '\t' << (unfill(R) ? 0 : (int) R.mapq);
+  ss << '\t' << (unfill(R) ? "*" : R.cigar) << '\t';
 
   if (R.strand == '*' || R2.strand == '*')
     ss << '*';
@@ -1398,10 +1416,10 @@ void AccAlign::print_paired_sam(Read &R, Read &R2) {
   flag |= 0x80;
 
   ss << flag;
-  ss << '\t' << (strand2 == '*' ? "*" : name[R2.tid]);
-  ss << '\t' << (strand2 == '*' ? 0 : R2.pos);
-  ss << '\t' << (strand2 == '*' ? 0 : (int) R2.mapq);
-  ss << '\t' << (strand2 == '*' ? "*" : R2.cigar) << '\t';
+  ss << '\t' << (unfill(R2) ? "*" : name[R2.tid]);
+  ss << '\t' << (unfill(R2) ? 0 : R2.pos);
+  ss << '\t' << (unfill(R2) ? 0 : (int) R2.mapq);
+  ss << '\t' << (unfill(R2) ? "*" : R2.cigar) << '\t';
 
   if (R.strand == '*' || R2.strand == '*')
     ss << '*';
@@ -1843,6 +1861,7 @@ static void append_cigar(Extension *&rp, uint32_t n_cigar, uint32_t *cigar) {
 void AccAlign::score_region(Read &r, char *qseq, Region &region,
                             Alignment &a) {
   unsigned qlen = strlen(r.seq);
+  r.tid = get_tid(region.rs + region.qe - 1); // end pos of the match seed
 
   if (!enable_extension) {
     region.score = qlen * SC_MCH;
@@ -1861,21 +1880,32 @@ void AccAlign::score_region(Read &r, char *qseq, Region &region,
 
     uint32_t qs, qe, qs0, qe0, rs, re, rs0, re0, l;
     uint32_t beginclip = 0, endclip = 0;
+    uint32_t match_len = region.matched_intervals[0].e - region.matched_intervals[0].s;
     qs = region.qs;
-    assert(region.qs == region.matched_intervals[0]);
-    qe = qs + kmer_len;
+    qe = region.qe;
+    assert(qe - qs == match_len);
     rs = region.rs + qs;
     re = region.rs + qe;
+    if ((rs < offset[r.tid]) & (re > offset[r.tid])){ // the match seed cross two oligos
+      qs += offset[r.tid] - rs;
+      match_len -= offset[r.tid] - rs;
+      rs = region.rs + qs;
+    }
+
     l = qs;
     l += l * SC_MCH + END_BONUS > GAPO ? (l * SC_MCH + END_BONUS - GAPO) / GAPE : 0;
     qs0 = 0, qe0 = qlen;
-    rs0 = rs > l ? rs - l : 0;
+    uint32_t chromo_s = offset[r.tid];
+    rs0 = rs > (l + chromo_s) ? rs - l : chromo_s; // start from the beginning of this chromo
 
     l = qlen - qe;
     l += l * SC_MCH + END_BONUS > GAPO ? (l * SC_MCH + END_BONUS - GAPO) / GAPE : 0;
-    re0 = re + l < offset.back() ? re + l: offset.back();
+    uint32_t chromo_e = r.tid + 1 < int(offset.size()) ? offset[r.tid + 1]: offset.back();
+    re0 = re + l < chromo_e ? re + l: chromo_e; // end at the end of this chromo
 
     //left extension
+    assert(qs >= qs0);
+    assert(rs >= rs0);
     if (qs > 0 && rs > 0) {
       ksw_extz_t ez_l;
       memset(&ez_l, 0, sizeof(ksw_extz_t));
@@ -1900,14 +1930,17 @@ void AccAlign::score_region(Read &r, char *qseq, Region &region,
     }
 
     // matched seed
-    uint32_t cigar_m[] = {kmer_len << 4};
+    uint32_t cigar_m[] = {match_len << 4};
     append_cigar(extension, 1, cigar_m);
-    for (unsigned j = 0; j < kmer_len; ++j) {
+    for (unsigned j = 0; j < match_len; ++j) {
       extension->dp_score += qseq[qs + j] == ref.c_str()[raw_rs + qs + j] ? SC_MCH : -SC_MIS;
     }
 
     // right extension
-    if (qe < qe0 && re < re0) {
+    assert(re <= re0);
+    if (qe < qe0 && re == re0){
+      endclip = qe0 - qe; //happen to reach end of last chromo, can't do right extension so need endclip
+    } else if(qe < qe0 && re < re0) {
       ksw_extz_t ez_r;
       memset(&ez_r, 0, sizeof(ksw_extz_t));
       const uint8_t *_tseq = reinterpret_cast<const uint8_t *>(ref.c_str() + re);
@@ -1971,51 +2004,55 @@ void AccAlign::score_region(Read &r, char *qseq, Region &region,
 }
 
 //determine chromo id
-int AccAlign::get_tid(Read &R) {
-  int tid = R.pos / (offset[1] - offset[0]);
-  if (R.pos >= offset[tid] && (tid == (int) name.size() - 1 || R.pos < offset[tid + 1])) {
-    return tid;
-  } else if (R.pos < offset[tid]) {
-    while (tid >= 0) {
-      if (R.pos >= offset[tid]) {
+int AccAlign::get_tid(uint32_t pos) {
+  if (pos >= offset.back())
+    return INT_MAX;
+
+  unsigned tid = pos / (offset.back() - offset[0]) * (offset.size() - 1); // the avg chrome length
+
+  if (tid >= name.size())
+    tid = name.size() - 1; //out of tid range
+
+  if (pos >= offset[tid]) {
+    while (tid < name.size()) {
+      if (pos < offset[tid + 1])
         return tid;
-      }
+      ++tid;
+    }
+  } else { //(R.pos < offset[tid])
+    while (tid >= 0) {
+      if (pos >= offset[tid])
+        return tid;
       --tid;
     }
-  } else {
-    while (tid < (int) name.size()) {
-      if (R.pos < offset[tid + 1]) {
-        return tid;
-      }++tid;
-    }
+    return name.size()-1; // return last tid, if pos too big
   }
 
-  return INT_MAX;
+//  return INT_MAX;
 }
 
 void AccAlign::save_region(Read &R, size_t rlen, Region &region,
                            Alignment &a) {
+  R.pos = region.rs;
+  R.as = region.score;
+
   if (!enable_extension || !region.embed_dist || region.embed_dist == 1) {
-    R.pos = region.rs;
     sprintf(R.cigar, "%uM", (unsigned) rlen);
     R.nm = 0;
   } else {
-    R.pos = region.rs;
     int cigar_len = a.cigar_string.size();
     strncpy(R.cigar, a.cigar_string.c_str(), cigar_len);
     R.cigar[cigar_len] = '\0';
     R.nm = a.mismatches;
   }
-  R.as = region.score;
-
-  R.tid = get_tid(R);
 
   if (R.tid + 1 < (int) name.size() && R.pos + rlen/2 > offset[R.tid + 1]){
     //reach the end of chromo, switch to next
     R.pos = 1;
     R.tid += 1;
-  } else
-    R.pos = R.pos - offset[R.tid] + 1;
+  } else {
+    R.pos = R.pos + 1 < offset[R.tid] ? 0 : R.pos - offset[R.tid] + 1;
+  }
 
   //cerr << "Saving region at pos " << R.pos << " as pos " << R.pos -
   //    offset[R.tid] + 1 << " for read " << R.name << endl;
@@ -2024,7 +2061,28 @@ void AccAlign::save_region(Read &R, size_t rlen, Region &region,
 void AccAlign::align_read(Read &R) {
   auto start = std::chrono::system_clock::now();
 
+  size_t rlen = strlen(R.seq);
+
   if (R.strand == '*') {
+    if (R.force_align){
+      R.tid = get_tid(R.pos);
+
+      if (R.tid == INT_MAX) { //out of the largest pos
+        R.pos = offset.back() - offset[offset.size() - 2] - rlen;
+        R.tid = name.size() - 1;
+      } else if (R.tid + 1 < (int) name.size() && R.pos + rlen / 2 > offset[R.tid + 1]) {
+        //reach the end of chromo, switch to next
+        R.pos = 1;
+        R.tid += 1;
+      } else
+        R.pos = R.pos - offset[R.tid] + 1;
+    }else {
+      R.tid = R.pos = 0;
+    }
+
+    R.mapq = R.nm = R.as = 0;
+    R.cigar[0] = '*';
+    R.cigar[1] = '\0';
     return;
   }
 
@@ -2032,7 +2090,6 @@ void AccAlign::align_read(Read &R) {
   char *s = R.strand == '+' ? R.fwd : R.rev;
 
   Alignment a;
-  size_t rlen = strlen(R.seq);
   score_region(R, s, region, a);
   save_region(R, rlen, region, a);
 
@@ -2176,7 +2233,7 @@ void AccAlign::sam_header(void) {
   so << "@HD\tVN:1.3\tSO:coordinate\n";
   for (size_t i = 0; i < name.size(); i++)
     so << "@SQ\tSN:" << name[i] << '\t' << "LN:" << offset[i + 1] - offset[i] << '\n';
-  so << "@PG\tID:AccAlign\tPN:AccAlign\tVN:0.0\n";
+  so << "@PG\tID:AccAlign\tPN:AccAlign\tVN:0.0\tCL:accalign " << cmdStr << '\n';
 
   if (sam_name.length())
     sam_stream << so.str();
@@ -2213,7 +2270,7 @@ AccAlign::AccAlign(Reference &r) :
   input_io_time = parse_time = 0;
   seeding_time = hit_count_time = 0;
   vpair_build_time = 0;
-  sw_time = sam_time = sam_pre_time = sam_out_time = 0;
+  swap_time = sw_time = sam_time = sam_pre_time = sam_out_time = 0;
   vpair_sort_count = 0;
 
   if (g_embed_file.size())
@@ -2263,10 +2320,11 @@ struct tbb_align {
     accalign->align_read(*mate1);
     accalign->align_read(*mate2);
 
-    int mapq_pe = mate1->mapq > mate2->mapq ? mate1->mapq : mate2->mapq;
-    if (mate1->mapq < mapq_pe) mate1->mapq = (int) (.2f * mate1->mapq + .8f * mapq_pe + .499f);
-    if (mate2->mapq < mapq_pe) mate2->mapq = (int) (.2f * mate2->mapq + .8f * mapq_pe + .499f);
-
+    if (!mate1->force_align && !mate2->force_align){
+      int mapq_pe = mate1->mapq > mate2->mapq ? mate1->mapq : mate2->mapq;
+      if (mate1->mapq < mapq_pe) mate1->mapq = (int) (.2f * mate1->mapq + .8f * mapq_pe + .499f);
+      if (mate2->mapq < mapq_pe) mate2->mapq = (int) (.2f * mate2->mapq + .8f * mapq_pe + .499f);
+    }
     return p;
   }
 };
@@ -2447,6 +2505,10 @@ int main(int ac, char **av) {
         extend_all = true;
         opn += 1;
         flag = true;
+      } else if (av[opn][1] == 'f') {
+        fuzzy_pos = true;
+        opn += 1;
+        flag = true;
       } else {
         print_usage();
       }
@@ -2460,6 +2522,11 @@ int main(int ac, char **av) {
 
   cerr << "Using " << g_ncpus << " cpus " << endl;
   cerr << "Using kmer length " << kmer_len << " and step size " << kmer_step << endl;
+
+  stringstream tmp;
+  for (int i = 1; i < ac; ++i)
+    tmp << string(av[i]) << " ";
+  cmdStr = tmp.str();
 
   tbb::task_scheduler_init init(g_ncpus);
   make_code();
@@ -2501,3 +2568,5 @@ int main(int ac, char **av) {
 
   return 0;
 }
+
+
