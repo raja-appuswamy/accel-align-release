@@ -1265,12 +1265,11 @@ void AccAlign::map_paired_read(Read &mate1, Read &mate2) {
     map_read(mate2);
     if (mate1.strand == '*' && mate2.strand == '*')
       return;
-    else if ((mate1.strand != '*' && mate2.strand != '*' && mate1.best_region.embed_dist < mate2.best_region.embed_dist)
-        || mate2.strand == '*'){
+    else if (mate1.strand != '*' && mate2.strand == '*'){
       mate2.strand = '*';
       mate2.force_align = true;
       mate2.pos = mate1.best_region.rs;
-    }else{
+    }else if (mate1.strand == '*' && mate2.strand != '*') {
       mate1.strand = '*';
       mate1.force_align = true;
       mate1.pos = mate2.best_region.rs;
@@ -2325,6 +2324,33 @@ struct tbb_align {
     Read *mate2 = std::get<1>(p);
     accalign->align_read(*mate1);
     accalign->align_read(*mate2);
+
+    //forcealign to other mate, but other mate is set as unaligned during the extension check, so both mates are unalign
+    if (mate1->strand == '*' && mate2->force_align){
+      mate2->force_align = false;
+    }
+    if (mate1->force_align && mate2->strand == '*'){
+      mate1->force_align = false;
+    }
+
+    //if one mate is set as unalign after the extension check, force align to the other
+    if (mate1->strand != '*' && mate2->strand == '*'){
+      mate2->force_align = true;
+      mate2->tid = mate1->tid;
+      mate2->pos = mate1->pos;
+      mate2->mapq = mate2->nm = mate2->as = 0;
+      mate2->cigar[0] = '*';
+      mate2->cigar[1] = '\0';
+    }
+
+    if (mate1->strand == '*' && mate2->strand != '*'){
+      mate1->force_align = true;
+      mate1->tid = mate2->tid;
+      mate1->pos = mate2->pos;
+      mate1->mapq = mate1->nm = mate1->as = 0;
+      mate1->cigar[0] = '*';
+      mate1->cigar[1] = '\0';
+    }
 
     if (!mate1->force_align && !mate2->force_align){
       int mapq_pe = mate1->mapq > mate2->mapq ? mate1->mapq : mate2->mapq;
