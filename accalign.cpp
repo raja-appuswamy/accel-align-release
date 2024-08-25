@@ -105,7 +105,7 @@ void AccAlign::print_stats() {
        "\t Hit count time:\t" << hit_count_time / 1000000 << "\n" <<
        "\t Swap high cov time:\t" << swap_time / 1000000 << "\n" <<
        "\t Vpair build (only for pe):\t" << vpair_build_time / 1000000 << "\n" <<
-       "Embedding time(total/actual):\t" << embedding->embed_time / 1000000 << "\n" <<
+       "Embedding time:\t" << embedding_time / 1000000 << "\n" <<
        "Extending time (+ build output string if ENABLE_GPU):\t" << sw_time / 1000000 << "\n" <<
        "Mark best region time:\t" << mapqTime / 1000000 << "\n" <<
        "SAM output time :\t" << sam_time / 1000000 << "\n" <<
@@ -2274,7 +2274,7 @@ AccAlign::AccAlign(Reference &r) :
 
   input_io_time = parse_time = 0;
   seeding_time = hit_count_time = 0;
-  vpair_build_time = 0;
+  vpair_build_time = embedding_time = 0;
   swap_time = sw_time = sam_time = sam_pre_time = sam_out_time = 0;
   vpair_sort_count = 0;
 
