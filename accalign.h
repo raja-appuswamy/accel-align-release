@@ -8,7 +8,7 @@ class AccAlign {
 
   float input_io_time, parse_time;
   float seeding_time, hit_count_time, vpair_build_time;
-  float swap_time;
+  float swap_time, embedding_time;
   float sw_time, sam_time, sam_pre_time, sam_out_time;
   long vpair_sort_count;
 

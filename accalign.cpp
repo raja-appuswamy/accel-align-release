@@ -13,6 +13,7 @@ string g_out, g_batch_file, g_embed_file;
 char rcsymbol[6] = "TGCAN";
 uint8_t code[256];
 bool enable_extension = true, enable_wfa_extension = false, extend_all = false, fuzzy_pos = false;
+int min_match = 21; //at leach min_match chars are matched, otherwise will regard as unalign
 
 int g_ncpus = 1;
 float delTime = 0, mapqTime = 0, keyvTime = 0, posvTime = 0, sortTime = 0;
@@ -104,7 +105,7 @@ void AccAlign::print_stats() {
        "\t Hit count time:\t" << hit_count_time / 1000000 << "\n" <<
        "\t Swap high cov time:\t" << swap_time / 1000000 << "\n" <<
        "\t Vpair build (only for pe):\t" << vpair_build_time / 1000000 << "\n" <<
-       "Embedding time(total/actual):\t" << embedding->embed_time / 1000000 << "\n" <<
+       "Embedding time:\t" << embedding_time / 1000000 << "\n" <<
        "Extending time (+ build output string if ENABLE_GPU):\t" << sw_time / 1000000 << "\n" <<
        "Mark best region time:\t" << mapqTime / 1000000 << "\n" <<
        "SAM output time :\t" << sam_time / 1000000 << "\n" <<
@@ -1264,12 +1265,11 @@ void AccAlign::map_paired_read(Read &mate1, Read &mate2) {
     map_read(mate2);
     if (mate1.strand == '*' && mate2.strand == '*')
       return;
-    else if ((mate1.strand != '*' && mate2.strand != '*' && mate1.best_region.embed_dist < mate2.best_region.embed_dist)
-        || mate2.strand == '*'){
+    else if (mate1.strand != '*' && mate2.strand == '*'){
       mate2.strand = '*';
       mate2.force_align = true;
       mate2.pos = mate1.best_region.rs;
-    }else{
+    }else if (mate1.strand == '*' && mate2.strand != '*') {
       mate1.strand = '*';
       mate1.force_align = true;
       mate1.pos = mate2.best_region.rs;
@@ -1962,7 +1962,7 @@ void AccAlign::score_region(Read &r, char *qseq, Region &region,
       cigar_string << beginclip << 'S';
 
     unsigned i = 0;
-    int edit_mismatch = 0;
+    int edit_mismatch = 0, matched = 0;
     unsigned ref_pos = region.rs, read_pos = beginclip;
     while (i < extension->n_cigar) {
       int count = extension->cigar[i] >> 4;
@@ -1979,6 +1979,7 @@ void AccAlign::score_region(Read &r, char *qseq, Region &region,
             if (ref.c_str()[ref_pos] != qseq[read_pos])
               edit_mismatch++;
           }
+          matched += count;
           break;
         case 'D':edit_mismatch += count;
           ref_pos += count;
@@ -1993,11 +1994,15 @@ void AccAlign::score_region(Read &r, char *qseq, Region &region,
     if (endclip)
       cigar_string << endclip << 'S';
 
-    r.mapq = get_mapq(r.best, r.secBest);
-    a.cigar_string = cigar_string.str();
-    a.ref_begin = 0;
-    region.score = extension->dp_score;
-    a.mismatches = edit_mismatch;
+    if (matched < min_match + edit_mismatch){
+      r.strand = '*';  // less than min_match chars are matched --> not align
+    } else {
+      r.mapq = get_mapq(r.best, r.secBest);
+      a.cigar_string = cigar_string.str();
+      a.ref_begin = 0;
+      region.score = extension->dp_score;
+      a.mismatches = edit_mismatch;
+    }
     free(extension);
   }
 
@@ -2269,7 +2274,7 @@ AccAlign::AccAlign(Reference &r) :
 
   input_io_time = parse_time = 0;
   seeding_time = hit_count_time = 0;
-  vpair_build_time = 0;
+  vpair_build_time = embedding_time = 0;
   swap_time = sw_time = sam_time = sam_pre_time = sam_out_time = 0;
   vpair_sort_count = 0;
 
@@ -2319,6 +2324,33 @@ struct tbb_align {
     Read *mate2 = std::get<1>(p);
     accalign->align_read(*mate1);
     accalign->align_read(*mate2);
+
+    //forcealign to other mate, but other mate is set as unaligned during the extension check, so both mates are unalign
+    if (mate1->strand == '*' && mate2->force_align){
+      mate2->force_align = false;
+    }
+    if (mate1->force_align && mate2->strand == '*'){
+      mate1->force_align = false;
+    }
+
+    //if one mate is set as unalign after the extension check, force align to the other
+    if (mate1->strand != '*' && mate2->strand == '*'){
+      mate2->force_align = true;
+      mate2->tid = mate1->tid;
+      mate2->pos = mate1->pos;
+      mate2->mapq = mate2->nm = mate2->as = 0;
+      mate2->cigar[0] = '*';
+      mate2->cigar[1] = '\0';
+    }
+
+    if (mate1->strand == '*' && mate2->strand != '*'){
+      mate1->force_align = true;
+      mate1->tid = mate2->tid;
+      mate1->pos = mate2->pos;
+      mate1->mapq = mate1->nm = mate1->as = 0;
+      mate1->cigar[0] = '*';
+      mate1->cigar[1] = '\0';
+    }
 
     if (!mate1->force_align && !mate2->force_align){
       int mapq_pe = mate1->mapq > mate2->mapq ? mate1->mapq : mate2->mapq;
